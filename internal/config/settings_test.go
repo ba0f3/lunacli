@@ -103,6 +103,31 @@ func TestLoadSettings_CwdConfigOverridesUser(t *testing.T) {
 	}
 }
 
+func TestLoadSettings_CwdDotConfigJSON(t *testing.T) {
+	project := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dotConfigDir := filepath.Join(project, ".config")
+	if err := os.MkdirAll(dotConfigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dotConfigDir, "luna.config.json"),
+		[]byte(`{"config_dir":".config/luna.d"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(project)
+
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ConfigDir(); got != ".config/luna.d" {
+		t.Errorf("ConfigDir = %q, want .config/luna.d", got)
+	}
+}
+
 func TestLoadSettings_DotEnvOverridesJSON(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()

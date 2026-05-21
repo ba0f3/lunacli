@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	localConfigFile   = "luna.config.json"
-	userConfigRelPath = ".config/luna/config.json"
-	dotEnvFile        = ".env"
+	localConfigFile      = "luna.config.json"
+	cwdConfigJSONRelPath = ".config/luna.config.json"
+	userConfigRelPath    = ".config/luna/config.json"
+	dotEnvFile           = ".env"
 )
 
 // FileSettings is the JSON configuration schema (all fields optional).
@@ -58,7 +59,8 @@ type Settings struct {
 // apply environment overrides.
 //
 // Precedence (lowest to highest): JSON config files (~/.config/luna/config.json,
-// then $CWD/.config/luna/config.json, then $CWD/luna.config.json), then $CWD/.env
+// then $CWD/.config/luna/config.json, then $CWD/.config/luna.config.json, then
+// $CWD/luna.config.json), then $CWD/.env
 // (does not override variables already set in the process environment).
 func LoadSettings() (*Settings, error) {
 	if err := loadDotEnv(); err != nil {
@@ -106,6 +108,7 @@ func settingsFilePaths() []string {
 	}
 	paths = append(paths,
 		filepath.Join(cwd, userConfigRelPath),
+		filepath.Join(cwd, cwdConfigJSONRelPath),
 		filepath.Join(cwd, localConfigFile),
 	)
 	return paths
@@ -171,8 +174,10 @@ func (s *Settings) ConfigDir() string {
 	if v := envFirst("LUNA_CONFIG_DIR", s.file.ConfigDir); v != "" {
 		return v
 	}
-	if _, err := os.Stat("./luna.d"); err == nil {
-		return "./luna.d"
+	for _, dir := range []string{"./luna.d", "./.config/luna.d"} {
+		if _, err := os.Stat(dir); err == nil {
+			return dir
+		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		path := filepath.Join(home, ".config", "luna")

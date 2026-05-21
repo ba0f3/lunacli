@@ -21,6 +21,6 @@ fuzz-crashes/
 !.gitkeep
 
 # Local config
-/config/
+.config/
 .env
 .env.local
