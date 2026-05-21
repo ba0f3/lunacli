@@ -1,4 +1,4 @@
-# Luna command policy (required for: luna serve / luna-interceptor with no args)
+# Luna command policy (required for: luna serve)
 # Rules are evaluated top-to-bottom; first match wins.
 # Unmatched commands are mutating (require out-of-band approval).
 # See docs/zero-trust-interceptor.md and docs/superpowers/specs/2026-05-19-interceptor-redesign-design.md

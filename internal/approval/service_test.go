@@ -2,7 +2,6 @@ package approval
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -11,13 +10,7 @@ func TestService_ApproveThenConsumeOnce(t *testing.T) {
 	base := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
 	clock := base
 
-	path := filepath.Join(t.TempDir(), "approvals.db")
-	store, err := OpenSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("OpenSQLiteStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-
+	store := NewMemoryStore()
 	svc := NewService(store, Config{TTL: time.Hour})
 	svc.now = func() time.Time { return clock }
 
@@ -54,13 +47,7 @@ func TestService_ApproveThenConsumeOnce(t *testing.T) {
 func TestService_RejectMismatchedCommand(t *testing.T) {
 	base := time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC)
 
-	path := filepath.Join(t.TempDir(), "approvals.db")
-	store, err := OpenSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("OpenSQLiteStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-
+	store := NewMemoryStore()
 	svc := NewService(store, Config{TTL: time.Hour})
 	svc.now = func() time.Time { return base }
 

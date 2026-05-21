@@ -1,13 +1,11 @@
 package approval
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,12 +34,7 @@ func TestTelegramProvider_Notify_SendMessageCallbackData(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	path := filepath.Join(t.TempDir(), "approvals.db")
-	store, err := OpenSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("OpenSQLiteStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := NewMemoryStore()
 
 	svc := NewService(store, Config{TTL: time.Minute})
 	tg, err := NewTelegramProvider(svc, TelegramProviderOptions{
@@ -116,13 +109,8 @@ func TestTelegramProvider_Notify_SendMessageCallbackData(t *testing.T) {
 	}
 }
 
-func TestTelegramProvider_HandleCallback_UnauthorizedAudited(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "approvals.db")
-	store, err := OpenSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("OpenSQLiteStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+func TestTelegramProvider_HandleCallback_Unauthorized(t *testing.T) {
+	store := NewMemoryStore()
 
 	svc := NewService(store, Config{TTL: time.Minute})
 	tg, err := NewTelegramProvider(svc, TelegramProviderOptions{
@@ -146,26 +134,5 @@ func TestTelegramProvider_HandleCallback_UnauthorizedAudited(t *testing.T) {
 	err = tg.HandleCallback("999", "approve:"+pending.ID)
 	if !errors.Is(err, ErrTelegramCallbackUnauthorized) {
 		t.Fatalf("HandleCallback() error = %v, want %v", err, ErrTelegramCallbackUnauthorized)
-	}
-
-	dsn := sqliteDSN(path)
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("sql.Open: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	row := db.QueryRow(`
-SELECT event_type, detail FROM audit_events WHERE approval_id = ? ORDER BY id DESC LIMIT 1
-`, pending.ID)
-	var etype, detail string
-	if scanErr := row.Scan(&etype, &detail); scanErr != nil {
-		t.Fatalf("scan audit: %v", scanErr)
-	}
-	if etype != "telegram_callback_unauthorized" {
-		t.Fatalf("event_type = %q", etype)
-	}
-	if !strings.Contains(detail, `"telegram_user_id":"999"`) {
-		t.Fatalf("detail = %q", detail)
 	}
 }

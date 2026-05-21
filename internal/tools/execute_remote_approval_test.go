@@ -1,7 +1,6 @@
 package tools_test
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,15 +73,10 @@ func TestExecuteRemoteGateSequence_ReadOnly(t *testing.T) {
 }
 
 func TestExecuteRemoteGateSequence_ApproveRetry(t *testing.T) {
-	store, err := approval.OpenSQLiteStore(filepath.Join(t.TempDir(), "approvals.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := approval.NewMemoryStore()
 	cfg := approval.Config{TTL: time.Minute}
 	svc := approval.NewService(store, cfg)
-	fake := approval.NewFakeProvider(svc, "fake")
-	gate := approval.NewGate(cfg, svc, approval.NewProviderSet(fake))
+	gate := approval.NewGate(cfg, svc, nil)
 	eng := testEngine()
 
 	host := "user@example.com"
@@ -97,7 +91,7 @@ func TestExecuteRemoteGateSequence_ApproveRetry(t *testing.T) {
 	if id == "" {
 		t.Fatal("expected ApprovalID")
 	}
-	if err := fake.Approve(id, ""); err != nil {
+	if err := svc.Approve(id, "human", "test"); err != nil {
 		t.Fatal(err)
 	}
 	res2 := executeRemoteGate(eng, gate, host, cmd, timeout, id)

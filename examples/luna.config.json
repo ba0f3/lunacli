@@ -1,19 +1,11 @@
 {
   "config_dir": "./luna.d",
   "approval": {
-    "store": "./luna.d/approvals.db",
-    "ttl": "10m",
-    "provider": "fake"
-  },
-  "cli": {
-    "approver_users": ["1000"]
+    "ttl": "10m"
   },
   "telegram": {
     "bot_token_file": "/home/you/.config/luna/telegram-bot-token",
     "approver_user_id": "123456789",
-    "chat_id": ""
-  },
-  "audit": {
-    "file": "./luna.d/audit.jsonl"
+    "chat_id": "123456789"
   }
 }

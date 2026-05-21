@@ -10,13 +10,13 @@ import (
 var RootCmd = &cobra.Command{
 	Use:   "luna",
 	Short: "Luna: Zero-trust secure remote SSH agent and stdio MCP server",
+	Long:  "Run a subcommand (e.g. luna serve for the stdio MCP server).",
+	Run: func(cmd *cobra.Command, args []string) {
+		_ = cmd.Help()
+	},
 }
 
 func Execute() {
-	// Default to stdio MCP when invoked with no subcommand (OpenCode / legacy entrypoints).
-	if len(os.Args) == 1 {
-		os.Args = append(os.Args, "serve")
-	}
 	if err := RootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

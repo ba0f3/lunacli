@@ -23,20 +23,12 @@ const (
 type FileSettings struct {
 	ConfigDir string           `json:"config_dir"`
 	Approval  ApprovalSettings `json:"approval"`
-	CLI       CLISettings      `json:"cli"`
 	Telegram  TelegramSettings `json:"telegram"`
 	Audit     AuditSettings    `json:"audit"`
 }
 
 type ApprovalSettings struct {
-	Store    string `json:"store"`
-	TTL      string `json:"ttl"`
-	Provider string `json:"provider"`
-}
-
-type CLISettings struct {
-	// ApproverUsers lists Unix numeric uids allowed to run approvals approve/deny.
-	ApproverUsers []string `json:"approver_users"`
+	TTL string `json:"ttl"`
 }
 
 type TelegramSettings struct {
@@ -133,17 +125,8 @@ func mergeFileSettings(dst, src *FileSettings) {
 	if src.ConfigDir != "" {
 		dst.ConfigDir = src.ConfigDir
 	}
-	if src.Approval.Store != "" {
-		dst.Approval.Store = src.Approval.Store
-	}
 	if src.Approval.TTL != "" {
 		dst.Approval.TTL = src.Approval.TTL
-	}
-	if src.Approval.Provider != "" {
-		dst.Approval.Provider = src.Approval.Provider
-	}
-	if len(src.CLI.ApproverUsers) > 0 {
-		dst.CLI.ApproverUsers = append([]string(nil), src.CLI.ApproverUsers...)
 	}
 	if src.Telegram.BotToken != "" {
 		dst.Telegram.BotToken = src.Telegram.BotToken
@@ -188,14 +171,6 @@ func (s *Settings) ConfigDir() string {
 	return "/etc/luna"
 }
 
-// ApprovalStore returns the SQLite approvals database path.
-func (s *Settings) ApprovalStore() string {
-	if v := envFirst("LUNA_APPROVAL_STORE", s.file.Approval.Store); v != "" {
-		return v
-	}
-	return "approvals.db"
-}
-
 // ApprovalTTL returns pending approval lifetime (default 5m).
 func (s *Settings) ApprovalTTL() (time.Duration, error) {
 	ttlStr := envFirst("LUNA_APPROVAL_TTL", s.file.Approval.TTL)
@@ -207,25 +182,6 @@ func (s *Settings) ApprovalTTL() (time.Duration, error) {
 		return 0, fmt.Errorf("invalid approval ttl %q: %w", ttlStr, err)
 	}
 	return d, nil
-}
-
-// ApprovalProvider returns the comma-separated provider list (default "fake").
-func (s *Settings) ApprovalProvider() string {
-	if v := envFirst("LUNA_APPROVAL_PROVIDER", s.file.Approval.Provider); v != "" {
-		return v
-	}
-	return "fake"
-}
-
-// CLIApproverUsers returns comma-separated Unix uids for CLI approve/deny.
-func (s *Settings) CLIApproverUsers() string {
-	if v := strings.TrimSpace(os.Getenv("LUNA_CLI_APPROVER_USERS")); v != "" {
-		return v
-	}
-	if len(s.file.CLI.ApproverUsers) == 0 {
-		return ""
-	}
-	return strings.Join(s.file.CLI.ApproverUsers, ",")
 }
 
 // AuditFile returns the audit log path if configured.

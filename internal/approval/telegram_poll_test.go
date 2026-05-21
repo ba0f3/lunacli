@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -20,11 +19,7 @@ func TestTelegramProvider_Poll_ApproveCallback(t *testing.T) {
 	var editBody []byte
 	var getUpdatesCalls atomic.Int32
 
-	store, err := OpenSQLiteStore(filepath.Join(t.TempDir(), "approvals.db"))
-	if err != nil {
-		t.Fatalf("OpenSQLiteStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := NewMemoryStore()
 
 	svc := NewService(store, Config{TTL: time.Minute})
 	req, body, fp, err := BuildExecuteRemoteRequest("web1", "touch /tmp/x", 30)
@@ -145,11 +140,7 @@ func TestTelegramProvider_Poll_GetUpdatesRequestShape(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	store, err := OpenSQLiteStore(filepath.Join(t.TempDir(), "approvals.db"))
-	if err != nil {
-		t.Fatalf("OpenSQLiteStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := NewMemoryStore()
 
 	svc := NewService(store, Config{TTL: time.Minute})
 	tg, err := NewTelegramProvider(svc, TelegramProviderOptions{

@@ -36,23 +36,11 @@ var serveCmd = &cobra.Command{
 		eng := engine.NewEngine(pol)
 		pool := ssh.NewPool()
 
-		appCfg, err := approval.LoadConfig(settings)
+		boot, err := approval.BootstrapServeApproval(settings)
 		if err != nil {
-			log.Fatalf("failed load approval config: %v", err)
+			log.Fatalf("approval: %v", err)
 		}
-
-		store, err := approval.OpenSQLiteStore(appCfg.Store)
-		if err != nil {
-			log.Fatalf("SQLite error: %v", err)
-		}
-		defer func() { _ = store.Close() }()
-
-		svc := approval.NewService(store, appCfg)
-		providers, err := approval.RemoteProvidersFromSettings(settings, svc)
-		if err != nil {
-			log.Fatalf("approval providers: %v", err)
-		}
-		gate := approval.NewGate(appCfg, svc, providers)
+		defer boot.PollCancel()
 
 		s := server.NewMCPServer(
 			"luna", "2.0.0",
@@ -60,7 +48,7 @@ var serveCmd = &cobra.Command{
 			server.WithRecovery(),
 		)
 
-		tools.Register(s, pool, eng, gate)
+		tools.Register(s, pool, eng, boot.Gate)
 		if err := server.ServeStdio(s); err != nil {
 			fmt.Fprintf(os.Stderr, "server runtime error: %v\n", err)
 			os.Exit(1)

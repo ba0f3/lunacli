@@ -22,18 +22,13 @@ Edit `hosts.yml` so `host` values match your SSH targets and are present in
 ## Validate
 
 ```bash
-# From repository root (after: cp examples/luna.d/*.yml ./luna.d/)
-cd interceptor && make build
-../bin/luna-interceptor exec ubuntu@your-host uptime
-
-# Or point at examples without copying:
-LUNA_CONFIG_DIR="$(pwd)/../examples/luna.d" ../bin/luna-interceptor serve
+make build
+LUNA_CONFIG_DIR="$(pwd)/luna.d" ./bin/luna serve
 ```
 
-`exec` runs read-only commands immediately. Mutating commands create a pending
-approval (Telegram, CLI, etc.), **wait** until you approve or deny, then run.
-Use `--no-wait` to exit with `PERMISSION_REQUIRED` (MCP-style retry with
-`--approval-id`). MCP `execute_remote` always uses the non-blocking retry flow.
+Configure Telegram in `luna.config.json` (see [oob-approval.md](../../docs/oob-approval.md)). Point your MCP client at `["/path/to/luna", "serve"]`.
+
+Mutating `execute_remote` calls return `PERMISSION_REQUIRED` until you approve via Telegram, then retry with `approval_id`.
 
 ## Files
 
@@ -43,7 +38,7 @@ Use `--no-wait` to exit with `PERMISSION_REQUIRED` (MCP-style retry with
 | `hosts.yml` | No | Inventory aliases, tags, descriptions |
 | `env.example` | No | Optional env overrides — see [oob-approval.md](../../docs/oob-approval.md) |
 
-Project-level JSON (approval, `config_dir`): copy [../luna.config.json](../luna.config.json) to `./luna.config.json`.
+Project-level JSON: copy [../luna.config.json](../luna.config.json) to `./luna.config.json`.
 
 Customize rules before production use — the examples are a **baseline**, not a
 complete production policy.

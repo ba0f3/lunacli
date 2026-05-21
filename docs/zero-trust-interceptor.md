@@ -40,10 +40,10 @@ SSH authentication is unchanged: `~/.ssh/known_hosts`, `~/.ssh/config`,
 | Policy loader | `internal/policy` | **`policy.yml` required** for `luna serve` |
 | Hosts loader | `internal/config` | **`hosts.yml` optional** (inventory for future fleet tools) |
 | Hybrid engine | `internal/engine` | Layer 1 compiled forbidden patterns + Layer 2 YAML rules |
-| Approvals | `internal/approval` | Always OOB; `approval_id` on retry; SQLite store |
+| Approvals | `internal/approval` | In-memory store; Telegram-only OOB; poll loop inside `serve` |
 | Audit logger | `internal/audit` | JSON-lines to stderr + file (**library only** — not yet wired into `execute_remote`) |
-| CLI | `interceptor/cmd` | `serve`, `exec`, `approvals` |
-| MCP | `execute_remote` | Uses engine + gate; `allow_mutations` removed |
+| CLI | `cmd` | `serve` only (explicit subcommand) |
+| MCP | `execute_remote` | Uses engine + gate; `approval_id` retry |
 
 ### Planned (design spec; not yet in tree)
 
@@ -66,19 +66,13 @@ Build from `interceptor/`:
 make build   # → ../bin/luna-interceptor
 ```
 
-The binary registers as `luna` in Cobra help. OpenCode still invokes
-`./bin/luna-interceptor`; with **no arguments** it defaults to **`serve`**
-(stdio MCP), so existing `opencode.json` entries keep working.
+The binary registers as `luna` in Cobra help. MCP clients must invoke an explicit
+subcommand, e.g. `./bin/luna serve` (stdio MCP). Plain `luna` prints usage.
 
 | Command | Purpose |
 | ------- | ------- |
-| `luna serve` | Stdio MCP server for agents |
-| `luna exec <host> <command>` | Direct CLI run; mutating waits for OOB approve then executes (`--no-wait` / `--approval-id` for MCP-style) |
-| `luna approvals list` | List pending approvals |
-| `luna approvals show <id>` | JSON detail for one request |
-| `luna approvals approve <id>` | Approve (authorized OS user) |
-| `luna approvals deny <id>` | Deny |
-| `luna telegram poll` | Receive Telegram Approve/Deny button callbacks (also auto-started during `exec` wait) |
+| `luna` | Print usage (no implicit subcommand) |
+| `luna serve` | Stdio MCP server: policy, approvals in memory, Telegram poll |
 
 ---
 
@@ -107,7 +101,7 @@ mkdir -p luna.d
 cp examples/luna.d/policy.yml examples/luna.d/hosts.yml luna.d/
 # Edit hosts to match your SSH targets
 cd interceptor && make build
-./bin/luna-interceptor serve   # or run from repo root with ./luna.d present
+./bin/luna serve
 ```
 
 ### `policy.yml`
