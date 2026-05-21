@@ -33,13 +33,31 @@ type telegramUpdate struct {
 }
 
 type telegramCallbackQuery struct {
-	ID   string       `json:"id"`
-	From telegramUser `json:"from"`
-	Data string       `json:"data"`
+	ID      string                  `json:"id"`
+	From    telegramUser            `json:"from"`
+	Message *telegramCallbackMessage `json:"message,omitempty"`
+	Data    string                  `json:"data"`
 }
 
 type telegramUser struct {
 	ID int64 `json:"id"`
+}
+
+type telegramCallbackMessage struct {
+	MessageID int64        `json:"message_id"`
+	Chat      telegramChat `json:"chat"`
+}
+
+type telegramChat struct {
+	ID int64 `json:"id"`
+}
+
+type telegramEditMessageRequest struct {
+	ChatID      int64                `json:"chat_id"`
+	MessageID   int64                `json:"message_id"`
+	Text        string               `json:"text"`
+	ParseMode   string               `json:"parse_mode,omitempty"`
+	ReplyMarkup *telegramReplyMarkup `json:"reply_markup"`
 }
 
 type telegramAnswerCallbackRequest struct {
@@ -97,34 +115,85 @@ func (tg *TelegramProvider) fetchUpdates(ctx context.Context, offset int64) ([]t
 
 func (tg *TelegramProvider) handleCallbackQuery(ctx context.Context, cq *telegramCallbackQuery) {
 	userID := strconv.FormatInt(cq.From.ID, 10)
+	_, approvalID, hasID := parseTelegramCallback(strings.TrimSpace(cq.Data))
+
 	err := tg.HandleCallback(userID, cq.Data)
-	text, alert := telegramCallbackAnswer(err, cq.Data)
-	_ = tg.answerCallbackQuery(ctx, cq.ID, text, alert)
+	statusLabel, toast, alert := telegramCallbackAnswer(err, cq.Data)
+
+	_ = tg.answerCallbackQuery(ctx, cq.ID, toast, alert)
+
+	if cq.Message == nil {
+		return
+	}
+
+	var rec Record
+	if hasID {
+		if updated, getErr := tg.svc.Get(approvalID); getErr == nil {
+			rec = updated
+		}
+	}
+	if rec.ID == "" {
+		rec = Record{
+			ID:              approvalID,
+			RedactedCommand: "(unknown)",
+		}
+	}
+
+	if hasID && cq.Message != nil {
+		_ = tg.svc.SetTelegramMessage(approvalID, cq.Message.Chat.ID, cq.Message.MessageID)
+	}
+
+	editText := formatTelegramResolvedMessage(rec, statusLabel, telegramResolvedDetailForProvider(rec, userID, tg.Name(), err))
+	_ = tg.editApprovalMessage(ctx, cq.Message.Chat.ID, cq.Message.MessageID, editText)
 }
 
-func telegramCallbackAnswer(err error, data string) (text string, showAlert bool) {
+func telegramCallbackAnswer(err error, data string) (statusLabel, toast string, showAlert bool) {
 	if err == nil {
 		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(data)), "approve:") {
-			return "Approved", false
+			return "APPROVED", "Approved", false
 		}
-		return "Denied", false
+		return "DENIED", "Denied", false
 	}
 	switch {
 	case errors.Is(err, ErrTelegramCallbackUnauthorized):
-		return "Not authorized to approve", true
+		return "UNAUTHORIZED", "Not authorized", true
 	case errors.Is(err, ErrDenied):
-		return "Already denied", true
+		return "DENIED", "Already denied", true
 	case errors.Is(err, ErrExpired):
-		return "Approval expired", true
+		return "EXPIRED", "Approval expired", true
 	case errors.Is(err, ErrConsumed):
-		return "Approval already used", true
+		return "CONSUMED", "Already used", true
 	case errors.Is(err, ErrNotFound):
-		return "Unknown approval", true
+		return "NOT FOUND", "Unknown approval", true
 	case errors.Is(err, ErrMismatch):
-		return "Invalid approval state", true
+		return "INVALID", "Invalid state", true
 	default:
-		return "Failed: " + err.Error(), true
+		return "FAILED", err.Error(), true
 	}
+}
+
+func (tg *TelegramProvider) editApprovalMessage(ctx context.Context, chatID, messageID int64, text string) error {
+	body := telegramEditMessageRequest{
+		ChatID:    chatID,
+		MessageID: messageID,
+		Text:      text,
+		ParseMode: telegramParseModeHTML,
+		ReplyMarkup: &telegramReplyMarkup{
+			InlineKeyboard: [][]telegramInlineButton{},
+		},
+	}
+	var resp telegramAPIResponse
+	if err := tg.postTelegram(ctx, tg.editMessageTextPath, body, &resp, 15); err != nil {
+		return err
+	}
+	if !resp.OK {
+		desc := strings.TrimSpace(resp.Description)
+		if desc == "" {
+			desc = "editMessageText returned ok=false"
+		}
+		return fmt.Errorf("telegram editMessageText: %s", desc)
+	}
+	return nil
 }
 
 func (tg *TelegramProvider) answerCallbackQuery(ctx context.Context, callbackQueryID, text string, showAlert bool) error {

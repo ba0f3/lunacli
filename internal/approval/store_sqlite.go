@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver
@@ -85,8 +86,23 @@ CREATE TABLE IF NOT EXISTS audit_events (
 	FOREIGN KEY (approval_id) REFERENCES approvals(id) ON DELETE CASCADE
 );
 `
-	_, err := s.db.Exec(init)
-	return err
+	if _, err := s.db.Exec(init); err != nil {
+		return err
+	}
+	return s.migrateColumns()
+}
+
+func (s *sqliteStore) migrateColumns() error {
+	// Ignore "duplicate column" errors when upgrading existing databases.
+	for _, stmt := range []string{
+		`ALTER TABLE approvals ADD COLUMN telegram_chat_id INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE approvals ADD COLUMN telegram_message_id INTEGER NOT NULL DEFAULT 0`,
+	} {
+		if _, err := s.db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *sqliteStore) InsertPending(r Record) error {
@@ -108,7 +124,8 @@ INSERT INTO approvals (
 func (s *sqliteStore) Get(id string) (Record, error) {
 	row := s.db.QueryRow(`
 SELECT id, tool, host, redacted_command, normalized_body, classification, reason,
-	fingerprint, status, created_at, expires_at, decided_at, approver, redaction_version
+	fingerprint, status, created_at, expires_at, decided_at, approver, redaction_version,
+	telegram_chat_id, telegram_message_id
 FROM approvals WHERE id = ?
 `, id)
 	r, err := scanRecord(row)
@@ -124,7 +141,8 @@ FROM approvals WHERE id = ?
 func (s *sqliteStore) ListPending() ([]Record, error) {
 	rows, err := s.db.Query(`
 SELECT id, tool, host, redacted_command, normalized_body, classification, reason,
-	fingerprint, status, created_at, expires_at, decided_at, approver, redaction_version
+	fingerprint, status, created_at, expires_at, decided_at, approver, redaction_version,
+	telegram_chat_id, telegram_message_id
 FROM approvals WHERE status = ?
 ORDER BY created_at ASC
 `, StatusPending)
@@ -191,6 +209,24 @@ WHERE status = ? AND expires_at < ?
 	return err
 }
 
+func (s *sqliteStore) SetTelegramMessage(id string, chatID, messageID int64) error {
+	res, err := s.db.Exec(`
+UPDATE approvals SET telegram_chat_id = ?, telegram_message_id = ?
+WHERE id = ?
+`, chatID, messageID, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *sqliteStore) AppendAudit(e AuditEvent) error {
 	_, err := s.db.Exec(`
 INSERT INTO audit_events (approval_id, event_type, detail, created_at)
@@ -216,10 +252,12 @@ func scanRecord(row rowScanner) (Record, error) {
 		decided                                                          sql.NullString
 		approver                                                         string
 		redVer                                                           string
+		tgChat, tgMsg                                                    int64
 	)
 	if err := row.Scan(
 		&id, &tool, &host, &cmd, &normalized, &classification, &reason,
-		&fingerprint, &status, &created, &expires, &decided, &approver, &redVer); err != nil {
+		&fingerprint, &status, &created, &expires, &decided, &approver, &redVer,
+		&tgChat, &tgMsg); err != nil {
 		return Record{}, err
 	}
 	if !created.Valid {
@@ -260,8 +298,10 @@ func scanRecord(row rowScanner) (Record, error) {
 		CreatedAt:        createdTM.UTC(),
 		ExpiresAt:        expiresTM.UTC(),
 		DecidedAt:        decidedPtr,
-		Approver:         approver,
-		RedactionVersion: redVer,
+		Approver:          approver,
+		RedactionVersion:  redVer,
+		TelegramChatID:    tgChat,
+		TelegramMessageID: tgMsg,
 	}, nil
 }
 

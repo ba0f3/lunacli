@@ -24,8 +24,10 @@ type Record struct {
 	CreatedAt        time.Time
 	ExpiresAt        time.Time
 	DecidedAt        *time.Time
-	Approver         string
-	RedactionVersion string
+	Approver            string
+	RedactionVersion    string
+	TelegramChatID      int64
+	TelegramMessageID   int64
 }
 
 type AuditEvent struct {
@@ -43,5 +45,6 @@ type Store interface {
 	MarkConsumed(id string, at time.Time) error
 	AppendAudit(e AuditEvent) error
 	ExpireDue(now time.Time) error
+	SetTelegramMessage(id string, chatID, messageID int64) error
 	Close() error
 }

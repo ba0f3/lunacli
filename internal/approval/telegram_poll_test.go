@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +16,8 @@ import (
 func TestTelegramProvider_Poll_ApproveCallback(t *testing.T) {
 	const token = "poll-token"
 	var answerCalled atomic.Bool
+	var editCalled atomic.Bool
+	var editBody []byte
 	var getUpdatesCalls atomic.Int32
 
 	store, err := OpenSQLiteStore(filepath.Join(t.TempDir(), "approvals.db"))
@@ -45,6 +48,10 @@ func TestTelegramProvider_Poll_ApproveCallback(t *testing.T) {
 						"callback_query": {
 							"id": "cb-1",
 							"from": {"id": 111},
+							"message": {
+								"message_id": 99,
+								"chat": {"id": 222}
+							},
 							"data": "approve:` + pending.ID + `"
 						}
 					}]
@@ -54,6 +61,11 @@ func TestTelegramProvider_Poll_ApproveCallback(t *testing.T) {
 			_, _ = w.Write([]byte(`{"ok":true,"result":[]}`))
 		case "/bot" + token + "/answerCallbackQuery":
 			answerCalled.Store(true)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "/bot" + token + "/editMessageText":
+			editCalled.Store(true)
+			editBody, _ = io.ReadAll(r.Body)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"ok":true}`))
 		default:
@@ -100,6 +112,22 @@ func TestTelegramProvider_Poll_ApproveCallback(t *testing.T) {
 	}
 	if !answerCalled.Load() {
 		t.Fatal("expected answerCallbackQuery to be called")
+	}
+	if !editCalled.Load() {
+		t.Fatal("expected editMessageText to be called")
+	}
+	if !strings.Contains(string(editBody), "APPROVED") {
+		t.Fatalf("edit body = %s, want APPROVED status", string(editBody))
+	}
+	var editReq telegramEditMessageRequest
+	if err := json.Unmarshal(editBody, &editReq); err != nil {
+		t.Fatalf("decode editMessageText body: %v", err)
+	}
+	if editReq.ChatID != 222 || editReq.MessageID != 99 {
+		t.Fatalf("edit target = chat %d msg %d, want 222/99", editReq.ChatID, editReq.MessageID)
+	}
+	if len(editReq.ReplyMarkup.InlineKeyboard) != 0 {
+		t.Fatalf("expected inline keyboard removed, got %+v", editReq.ReplyMarkup.InlineKeyboard)
 	}
 }
 

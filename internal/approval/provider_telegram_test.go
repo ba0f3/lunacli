@@ -32,7 +32,7 @@ func TestTelegramProvider_Notify_SendMessageCallbackData(t *testing.T) {
 		captured = body
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":55,"chat":{"id":222}}}`))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -55,10 +55,19 @@ func TestTelegramProvider_Notify_SendMessageCallbackData(t *testing.T) {
 	}
 
 	req := ExecuteRemoteRequest{Tool: executeRemoteToolName, Host: "web1", Command: "uptime", TimeoutSec: 30}
+	body, err := CanonicalJSON(req)
+	if err != nil {
+		t.Fatalf("CanonicalJSON() error = %v", err)
+	}
+	fp := ComputeFingerprint(body)
+	info, err := svc.CreatePending(executeRemoteToolName, req, body, fp, "mutating", "uptime")
+	if err != nil {
+		t.Fatalf("CreatePending() error = %v", err)
+	}
 	pending := PendingInfo{
-		ID:                "apr-test-notify",
-		FingerprintPrefix: "abcd1234",
-		ExpiresAt:         time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC),
+		ID:                info.ID,
+		FingerprintPrefix: info.FingerprintPrefix,
+		ExpiresAt:         info.ExpiresAt,
 	}
 	if err := tg.Notify(pending, req); err != nil {
 		t.Fatalf("Notify() error = %v", err)
@@ -76,17 +85,34 @@ func TestTelegramProvider_Notify_SendMessageCallbackData(t *testing.T) {
 	}
 	btn0 := msg.ReplyMarkup.InlineKeyboard[0][0]
 	btn1 := msg.ReplyMarkup.InlineKeyboard[0][1]
-	if btn0.CallbackData != "approve:apr-test-notify" {
+	if btn0.CallbackData != "approve:"+info.ID {
 		t.Fatalf("approve callback_data = %q", btn0.CallbackData)
 	}
-	if btn1.CallbackData != "deny:apr-test-notify" {
+	if btn1.CallbackData != "deny:"+info.ID {
 		t.Fatalf("deny callback_data = %q", btn1.CallbackData)
 	}
-	if want := "Approve"; btn0.Text != want {
-		t.Fatalf("approve button text = %q, want %q", btn0.Text, want)
+	if btn0.Text != "✅ Approve" {
+		t.Fatalf("approve button text = %q", btn0.Text)
 	}
-	if want := "Deny"; btn1.Text != want {
-		t.Fatalf("deny button text = %q, want %q", btn1.Text, want)
+	if btn1.Text != "❌ Deny" {
+		t.Fatalf("deny button text = %q", btn1.Text)
+	}
+	if msg.ParseMode != telegramParseModeHTML {
+		t.Fatalf("parse_mode = %q, want HTML", msg.ParseMode)
+	}
+	if !strings.Contains(msg.Text, "PENDING") || !strings.Contains(msg.Text, "<pre>uptime</pre>") {
+		t.Fatalf("message text = %q, want HTML pending format", msg.Text)
+	}
+	if strings.Contains(msg.Text, "Fingerprint") {
+		t.Fatal("pending message should not include fingerprint")
+	}
+
+	rec, err := svc.Get(info.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if rec.TelegramMessageID != 55 || rec.TelegramChatID != 222 {
+		t.Fatalf("telegram ids = chat %d msg %d, want 222/55", rec.TelegramChatID, rec.TelegramMessageID)
 	}
 }
 

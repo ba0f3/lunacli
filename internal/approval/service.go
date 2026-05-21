@@ -250,6 +250,14 @@ func (s *Service) ListPending() ([]Record, error) {
 	return s.store.ListPending()
 }
 
+// SetTelegramMessage records the Telegram chat/message ids for a pending approval prompt.
+func (s *Service) SetTelegramMessage(id string, chatID, messageID int64) error {
+	if chatID == 0 || messageID == 0 {
+		return nil
+	}
+	return s.store.SetTelegramMessage(id, chatID, messageID)
+}
+
 // AppendAudit records an audit event. If ev.CreatedAt is zero, svc.now() is used.
 func (s *Service) AppendAudit(ev AuditEvent) error {
 	if ev.CreatedAt.IsZero() {

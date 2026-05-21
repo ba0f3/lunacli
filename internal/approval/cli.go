@@ -33,12 +33,12 @@ func RunApprovalsCLI(args []string, svc *Service) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: approvals approve <id>")
 		}
-		return approvalsApprove(svc, strings.TrimSpace(args[1]), allowed)
+		return approvalsApprove(svc, settings, strings.TrimSpace(args[1]), allowed)
 	case "deny":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: approvals deny <id>")
 		}
-		return approvalsDeny(svc, strings.TrimSpace(args[1]), allowed)
+		return approvalsDeny(svc, settings, strings.TrimSpace(args[1]), allowed)
 	default:
 		return fmt.Errorf("unknown approvals subcommand %q", args[0])
 	}
@@ -70,7 +70,7 @@ func approvalsShow(svc *Service, id string) error {
 	return enc.Encode(r)
 }
 
-func approvalsApprove(svc *Service, id, allowedCSV string) error {
+func approvalsApprove(svc *Service, settings *config.Settings, id, allowedCSV string) error {
 	uid := fmt.Sprint(os.Getuid())
 	if err := AuthorizeCLIApprover(uid, allowedCSV); err != nil {
 		if _, gerr := svc.Get(id); gerr == nil {
@@ -87,10 +87,13 @@ func approvalsApprove(svc *Service, id, allowedCSV string) error {
 	if err := svc.Approve(id, uid, "cli"); err != nil {
 		return err
 	}
+	if err := svc.UpdateTelegramMessage(settings, id); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: telegram message update failed: %v\n", err)
+	}
 	return nil
 }
 
-func approvalsDeny(svc *Service, id, allowedCSV string) error {
+func approvalsDeny(svc *Service, settings *config.Settings, id, allowedCSV string) error {
 	uid := fmt.Sprint(os.Getuid())
 	if err := AuthorizeCLIApprover(uid, allowedCSV); err != nil {
 		if _, gerr := svc.Get(id); gerr == nil {
@@ -103,5 +106,11 @@ func approvalsDeny(svc *Service, id, allowedCSV string) error {
 		}
 		return err
 	}
-	return svc.Deny(id, uid, "cli")
+	if err := svc.Deny(id, uid, "cli"); err != nil {
+		return err
+	}
+	if err := svc.UpdateTelegramMessage(settings, id); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: telegram message update failed: %v\n", err)
+	}
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,14 +27,16 @@ type TelegramProvider struct {
 	chatID          string
 	apiBase         string
 	httpClient         *http.Client
-	sendMessagePath    string
-	getUpdatesPath     string
-	answerCallbackPath string
+	sendMessagePath     string
+	getUpdatesPath      string
+	answerCallbackPath  string
+	editMessageTextPath string
 }
 
 type telegramSendMessageBody struct {
 	ChatID      string               `json:"chat_id"`
 	Text        string               `json:"text"`
+	ParseMode   string               `json:"parse_mode,omitempty"`
 	ReplyMarkup *telegramReplyMarkup `json:"reply_markup,omitempty"`
 }
 
@@ -51,6 +54,16 @@ type telegramAPIResponse struct {
 	Description string `json:"description"`
 }
 
+type telegramSendMessageResponse struct {
+	OK     bool `json:"ok"`
+	Result struct {
+		MessageID int64 `json:"message_id"`
+		Chat      struct {
+			ID int64 `json:"id"`
+		} `json:"chat"`
+	} `json:"result"`
+}
+
 // TelegramProviderOptions configures TelegramProvider for tests or advanced setups.
 type TelegramProviderOptions struct {
 	BotToken       string
@@ -64,6 +77,8 @@ type TelegramProviderOptions struct {
 	GetUpdatesPathFmt string
 	// AnswerCallbackPathFmt overrides answerCallbackQuery path (default "/bot%s/answerCallbackQuery").
 	AnswerCallbackPathFmt string
+	// EditMessageTextPathFmt overrides editMessageText path (default "/bot%s/editMessageText").
+	EditMessageTextPathFmt string
 }
 
 // NewTelegramProvider constructs a Telegram provider. Prefer NewTelegramProviderFromEnv for production.
@@ -100,6 +115,10 @@ func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramPr
 	if answerFmt == "" {
 		answerFmt = "/bot%s/answerCallbackQuery"
 	}
+	editFmt := opt.EditMessageTextPathFmt
+	if editFmt == "" {
+		editFmt = "/bot%s/editMessageText"
+	}
 	client := opt.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
@@ -113,8 +132,9 @@ func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramPr
 		apiBase:            base,
 		httpClient:         client,
 		sendMessagePath:    sendPath,
-		getUpdatesPath:     fmt.Sprintf(getUpdatesFmt, token),
-		answerCallbackPath: fmt.Sprintf(answerFmt, token),
+		getUpdatesPath:      fmt.Sprintf(getUpdatesFmt, token),
+		answerCallbackPath:  fmt.Sprintf(answerFmt, token),
+		editMessageTextPath: fmt.Sprintf(editFmt, token),
 	}, nil
 }
 
@@ -123,22 +143,16 @@ func (tg *TelegramProvider) Name() string { return "telegram" }
 
 // Notify implements Provider.
 func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest) error {
-	text := fmt.Sprintf(
-		"Luna approval required\nRequest ID: %s\nHost: %s\nCommand: %s\nExpires (UTC): %s\nFingerprint prefix: %s",
-		pending.ID,
-		req.Host,
-		req.Command,
-		pending.ExpiresAt.UTC().Format(time.RFC3339),
-		pending.FingerprintPrefix,
-	)
+	text := formatTelegramPendingMessage(pending, req)
 	body := telegramSendMessageBody{
-		ChatID: tg.chatID,
-		Text:   text,
+		ChatID:    tg.chatID,
+		Text:      text,
+		ParseMode: telegramParseModeHTML,
 		ReplyMarkup: &telegramReplyMarkup{
 			InlineKeyboard: [][]telegramInlineButton{
 				{
-					{Text: "Approve", CallbackData: "approve:" + pending.ID},
-					{Text: "Deny", CallbackData: "deny:" + pending.ID},
+					{Text: "✅ Approve", CallbackData: "approve:" + pending.ID},
+					{Text: "❌ Deny", CallbackData: "deny:" + pending.ID},
 				},
 			},
 		},
@@ -168,16 +182,21 @@ func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest
 		return fmt.Errorf("telegram sendMessage: HTTP %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
 	}
 
-	var api telegramAPIResponse
+	var api telegramSendMessageResponse
 	if err := json.Unmarshal(respBody, &api); err != nil {
 		return fmt.Errorf("telegram sendMessage: decode response: %w", err)
 	}
 	if !api.OK {
-		desc := strings.TrimSpace(api.Description)
-		if desc == "" {
-			desc = string(respBody)
+		return fmt.Errorf("telegram sendMessage: api error: %s", strings.TrimSpace(string(respBody)))
+	}
+	if api.Result.MessageID != 0 {
+		chatID := api.Result.Chat.ID
+		if chatID == 0 {
+			if parsed, err := strconv.ParseInt(tg.chatID, 10, 64); err == nil {
+				chatID = parsed
+			}
 		}
-		return fmt.Errorf("telegram sendMessage: api error: %s", desc)
+		_ = tg.svc.SetTelegramMessage(pending.ID, chatID, api.Result.MessageID)
 	}
 	return nil
 }
