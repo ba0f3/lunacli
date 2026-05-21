@@ -30,9 +30,10 @@ cd interceptor && make build
 LUNA_CONFIG_DIR="$(pwd)/../examples/luna.d" ../bin/luna-interceptor serve
 ```
 
-`exec` runs read-only commands that match an `allow` rule. Mutating commands
-print a message and exit without creating an approval (use MCP `execute_remote`
-for the full approval flow).
+`exec` runs read-only commands immediately. Mutating commands create a pending
+approval (Telegram, CLI, etc.), **wait** until you approve or deny, then run.
+Use `--no-wait` to exit with `PERMISSION_REQUIRED` (MCP-style retry with
+`--approval-id`). MCP `execute_remote` always uses the non-blocking retry flow.
 
 ## Files
 

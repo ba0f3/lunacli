@@ -16,6 +16,19 @@ func NewProviderSet(providers ...Provider) *ProviderSet {
 	return &ProviderSet{providers: providers}
 }
 
+// Telegram returns the Telegram provider when configured, or nil.
+func (p *ProviderSet) Telegram() *TelegramProvider {
+	if p == nil {
+		return nil
+	}
+	for _, provider := range p.providers {
+		if tg, ok := provider.(*TelegramProvider); ok {
+			return tg
+		}
+	}
+	return nil
+}
+
 // NotifyAll invokes Notify on each provider; returns the first non-nil error, if any.
 func (p *ProviderSet) NotifyAll(pending PendingInfo, req ExecuteRemoteRequest) error {
 	var firstErr error

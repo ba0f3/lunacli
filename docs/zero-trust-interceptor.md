@@ -73,11 +73,12 @@ The binary registers as `luna` in Cobra help. OpenCode still invokes
 | Command | Purpose |
 | ------- | ------- |
 | `luna serve` | Stdio MCP server for agents |
-| `luna exec <host> <command>` | Direct CLI run after policy check (mutating exits without approval flow) |
+| `luna exec <host> <command>` | Direct CLI run; mutating waits for OOB approve then executes (`--no-wait` / `--approval-id` for MCP-style) |
 | `luna approvals list` | List pending approvals |
 | `luna approvals show <id>` | JSON detail for one request |
 | `luna approvals approve <id>` | Approve (authorized OS user) |
 | `luna approvals deny <id>` | Deny |
+| `luna telegram poll` | Receive Telegram Approve/Deny button callbacks (also auto-started during `exec` wait) |
 
 ---
 

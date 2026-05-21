@@ -25,8 +25,10 @@ type TelegramProvider struct {
 	approverUserID  string
 	chatID          string
 	apiBase         string
-	httpClient      *http.Client
-	sendMessagePath string // tests override path segment after apiBase (default "/bot%s/sendMessage")
+	httpClient         *http.Client
+	sendMessagePath    string
+	getUpdatesPath     string
+	answerCallbackPath string
 }
 
 type telegramSendMessageBody struct {
@@ -58,6 +60,10 @@ type TelegramProviderOptions struct {
 	HTTPClient     *http.Client
 	// SendMessagePathFmt is fmt format with one verb for bot token, e.g. "/bot%s/sendMessage".
 	SendMessagePathFmt string
+	// GetUpdatesPathFmt overrides getUpdates path for tests (default "/bot%s/getUpdates").
+	GetUpdatesPathFmt string
+	// AnswerCallbackPathFmt overrides answerCallbackQuery path (default "/bot%s/answerCallbackQuery").
+	AnswerCallbackPathFmt string
 }
 
 // NewTelegramProvider constructs a Telegram provider. Prefer NewTelegramProviderFromEnv for production.
@@ -86,19 +92,29 @@ func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramPr
 		pathFmt = "/bot%s/sendMessage"
 	}
 	sendPath := fmt.Sprintf(pathFmt, token)
+	getUpdatesFmt := opt.GetUpdatesPathFmt
+	if getUpdatesFmt == "" {
+		getUpdatesFmt = "/bot%s/getUpdates"
+	}
+	answerFmt := opt.AnswerCallbackPathFmt
+	if answerFmt == "" {
+		answerFmt = "/bot%s/answerCallbackQuery"
+	}
 	client := opt.HTTPClient
 	if client == nil {
 		client = http.DefaultClient
 	}
 
 	return &TelegramProvider{
-		svc:             svc,
-		botToken:        token,
-		approverUserID:  approver,
-		chatID:          chat,
-		apiBase:         base,
-		httpClient:      client,
-		sendMessagePath: sendPath,
+		svc:                svc,
+		botToken:           token,
+		approverUserID:     approver,
+		chatID:             chat,
+		apiBase:            base,
+		httpClient:         client,
+		sendMessagePath:    sendPath,
+		getUpdatesPath:     fmt.Sprintf(getUpdatesFmt, token),
+		answerCallbackPath: fmt.Sprintf(answerFmt, token),
 	}, nil
 }
 

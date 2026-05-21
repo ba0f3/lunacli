@@ -24,6 +24,7 @@ type GateResult struct {
 	ApprovalID        string
 	ExpiresAt         time.Time
 	FingerprintPrefix string
+	NotifyErr         error // set when a provider Notify fails (first error only)
 }
 
 // Gate applies out-of-band approval policy on top of command classification.
@@ -78,8 +79,9 @@ func (g *Gate) CheckExecuteRemote(check engine.Result, host, command string, tim
 			PermissionText: "PERMISSION_REQUIRED: failed to register approval request: " + err.Error(),
 		}
 	}
+	var notifyErr error
 	if g.providers != nil {
-		_ = g.providers.NotifyAll(pending, req)
+		notifyErr = g.providers.NotifyAll(pending, req)
 	}
 
 	return GateResult{
@@ -88,5 +90,6 @@ func (g *Gate) CheckExecuteRemote(check engine.Result, host, command string, tim
 		ApprovalID:        pending.ID,
 		ExpiresAt:         pending.ExpiresAt,
 		FingerprintPrefix: pending.FingerprintPrefix,
+		NotifyErr:         notifyErr,
 	}
 }

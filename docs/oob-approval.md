@@ -166,14 +166,17 @@ export LUNA_TELEGRAM_CHAT_ID=-1001234567890
 
 ### Callback delivery
 
-The MCP stdio server does **not** host an HTTP webhook. Inline-button callbacks
-require a separate process that calls Telegram `getUpdates` (long polling) or a
-webhook receiver, then invokes the Telegram provider’s callback handler.
+Inline Approve/Deny buttons require something to receive Telegram
+`callback_query` updates:
 
-Until a built-in poller ships, use **CLI approve** or your own integration:
+| Workflow | Who polls |
+| -------- | --------- |
+| `luna exec` (default wait) | Started automatically while waiting |
+| MCP `serve` / agents | Run in another terminal: `luna telegram poll` |
+| Manual | `luna approvals approve <approval_id>` (no Telegram buttons) |
 
 ```bash
-luna-interceptor approvals approve <approval_id>
+luna telegram poll
 ```
 
 Callback payload format: `approve:<approval_id>` and `deny:<approval_id>`.
@@ -218,10 +221,10 @@ Tell the agent to retry with the same host, command, timeout, and `approval_id`.
 
 | Step | Action |
 | ---- | ------ |
-| First call | `execute_remote` without `approval_id` on a mutating command |
+| First call | `execute_remote` without `approval_id`, or `luna exec --no-wait` on a mutating command |
 | Response | `PERMISSION_REQUIRED:` + structured fields |
 | Human | Approves via CLI or Telegram |
-| Retry | Same `host`, `command`, `timeout_sec`, plus `approval_id` |
+| Retry | Same `host`, `command`, `timeout_sec`, plus `approval_id` (CLI: `luna exec` waits by default; `--approval-id` / `--no-wait` for non-blocking) |
 
 There is no environment variable that lets the agent bypass approval.
 
