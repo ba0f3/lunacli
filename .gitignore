@@ -19,3 +19,8 @@ fuzz-crashes/
 
 # Data
 !.gitkeep
+
+# Local config
+config/
+.env
+.env.local
