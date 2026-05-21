@@ -8,11 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 const (
 	localConfigFile   = "luna.config.json"
 	userConfigRelPath = ".config/luna/config.json"
+	dotEnvFile        = ".env"
 )
 
 // FileSettings is the JSON configuration schema (all fields optional).
@@ -54,27 +57,58 @@ type Settings struct {
 // LoadSettings reads configuration files then exposes values via accessors that
 // apply environment overrides.
 //
-// File precedence (lowest to highest): ~/.config/luna/config.json, then
-// ./luna.config.json. Environment variables override any file value.
+// Precedence (lowest to highest): JSON config files (~/.config/luna/config.json,
+// then $CWD/.config/luna/config.json, then $CWD/luna.config.json), then $CWD/.env
+// (does not override variables already set in the process environment).
 func LoadSettings() (*Settings, error) {
+	if err := loadDotEnv(); err != nil {
+		return nil, err
+	}
+
 	var merged FileSettings
 
-	if home, err := os.UserHomeDir(); err == nil {
-		homePath := filepath.Join(home, userConfigRelPath)
-		if fs, err := readSettingsFile(homePath); err != nil {
+	for _, path := range settingsFilePaths() {
+		fs, err := readSettingsFile(path)
+		if err != nil {
 			return nil, err
-		} else if fs != nil {
+		}
+		if fs != nil {
 			mergeFileSettings(&merged, fs)
 		}
 	}
 
-	if fs, err := readSettingsFile(localConfigFile); err != nil {
-		return nil, err
-	} else if fs != nil {
-		mergeFileSettings(&merged, fs)
-	}
-
 	return &Settings{file: merged}, nil
+}
+
+func loadDotEnv() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	path := filepath.Join(cwd, dotEnvFile)
+	if err := godotenv.Load(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("load %s: %w", path, err)
+	}
+	return nil
+}
+
+func settingsFilePaths() []string {
+	var paths []string
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, userConfigRelPath))
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return paths
+	}
+	paths = append(paths,
+		filepath.Join(cwd, userConfigRelPath),
+		filepath.Join(cwd, localConfigFile),
+	)
+	return paths
 }
 
 func readSettingsFile(path string) (*FileSettings, error) {
