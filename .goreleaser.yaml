@@ -1,0 +1,55 @@
+version: 2
+
+project_name: lunacli
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: luna
+    main: ./main.go
+    binary: luna
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+  - id: ssh-debug
+    main: ./cmd/ssh-debug
+    binary: luna-ssh-debug
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - ids:
+      - luna
+      - ssh-debug
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+
+release:
+  github:
+    owner: ba0f3
+    name: lunacli
