@@ -23,7 +23,7 @@ func ParseKnownHosts() ([]string, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	hostSet := make(map[string]struct{})
 	scanner := bufio.NewScanner(f)

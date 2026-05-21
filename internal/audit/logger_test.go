@@ -13,7 +13,7 @@ func TestAuditLogger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	logFile := filepath.Join(tmp, "audit.jsonl")
 	l := NewLogger(logFile)
@@ -34,7 +34,7 @@ func TestAuditLogger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	if scanner.Scan() {

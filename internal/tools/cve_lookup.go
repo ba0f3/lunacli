@@ -93,7 +93,7 @@ func fetchNVDLookup(baseURL, cveID string, client *http.Client) (CVELookupResult
 	if err != nil {
 		return CVELookupResult{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return CVELookupResult{}, fmt.Errorf("NVD lookup failed with HTTP %d", resp.StatusCode)
 	}

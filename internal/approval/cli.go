@@ -50,11 +50,11 @@ func approvalsList(svc *Service) error {
 		return err
 	}
 	if len(recs) == 0 {
-		fmt.Fprintln(os.Stdout, "no pending approvals")
+		_, _ = fmt.Fprintln(os.Stdout, "no pending approvals")
 		return nil
 	}
 	for _, r := range recs {
-		fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(os.Stdout, "%s\t%s\t%s\t%s\n",
 			r.ID, r.Host, r.RedactedCommand, r.ExpiresAt.UTC().Format(time.RFC3339))
 	}
 	return nil

@@ -11,7 +11,7 @@ func TestLoadPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	content := `
 version: 1

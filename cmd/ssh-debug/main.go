@@ -23,7 +23,7 @@ func runRemoteProbe(client *gossh.Client) {
 		fmt.Printf("NewSession: %v\n", err)
 		return
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 	fmt.Printf("\n--- exec: hostname && uptime ---\n")
@@ -129,7 +129,7 @@ func main() {
 	client, err := gossh.Dial("tcp", addr, config)
 	if err == nil {
 		fmt.Printf("Connected.\n")
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 		runRemoteProbe(client)
 		return
 	}
@@ -161,7 +161,7 @@ func main() {
 		fmt.Printf("Retry Dial error: %v\n", err)
 		os.Exit(1)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	fmt.Printf("Retry SUCCESS! Connected using %v\n", knownAlgos)
 	runRemoteProbe(client)
 }

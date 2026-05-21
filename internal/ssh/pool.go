@@ -173,7 +173,7 @@ func (p *Pool) Execute(target, command string, timeout time.Duration) (ExecResul
 			return ExecResult{}, fmt.Errorf("create SSH session: %w", err)
 		}
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	var stdoutBuf, stderrBuf strings.Builder
 	session.Stdout = &stdoutBuf

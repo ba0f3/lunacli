@@ -102,11 +102,11 @@ human approval before retrying with approval_id.`),
 func formatExecResult(host, command string, check engine.Result, r ssh.ExecResult) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("Host:     %s\n", host))
-	b.WriteString(fmt.Sprintf("Command:  %s\n", command))
-	b.WriteString(fmt.Sprintf("Class:    %s\n", check.Class))
-	b.WriteString(fmt.Sprintf("Exit:     %d\n", r.ExitCode))
-	b.WriteString(fmt.Sprintf("Duration: %s\n", r.Duration.Round(time.Millisecond)))
+	fmt.Fprintf(&b, "Host:     %s\n", host)
+	fmt.Fprintf(&b, "Command:  %s\n", command)
+	fmt.Fprintf(&b, "Class:    %s\n", check.Class)
+	fmt.Fprintf(&b, "Exit:     %d\n", r.ExitCode)
+	fmt.Fprintf(&b, "Duration: %s\n", r.Duration.Round(time.Millisecond))
 	if check.Class == engine.Mutating {
 		b.WriteString("Mutations: APPROVED\n")
 	}

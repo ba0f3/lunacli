@@ -35,10 +35,10 @@ Credentials and keys are managed by your local SSH agent.`),
 		b.WriteString(strings.Repeat("─", 50) + "\n")
 
 		for _, host := range hosts {
-			b.WriteString(fmt.Sprintf("- %s\n", host))
+			fmt.Fprintf(&b, "- %s\n", host)
 		}
 
-		b.WriteString(fmt.Sprintf("\nTotal: %d unhashed host(s)\n", len(hosts)))
+		fmt.Fprintf(&b, "\nTotal: %d unhashed host(s)\n", len(hosts))
 		return mcp.NewToolResultText(b.String()), nil
 	})
 }

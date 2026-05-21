@@ -47,7 +47,7 @@ func (l *Logger) Log(ev Event) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, _ = f.Write(data)
 		_, _ = f.Write([]byte("\n"))
 	}

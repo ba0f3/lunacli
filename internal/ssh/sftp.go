@@ -18,13 +18,13 @@ func (p *Pool) ReadFile(alias, path string, maxBytes int64) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open SFTP session on %s: %w", alias, err)
 	}
-	defer sftpClient.Close()
+	defer func() { _ = sftpClient.Close() }()
 
 	f, err := sftpClient.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %q on %s: %w", path, alias, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	buf := make([]byte, maxBytes)
 	n, readErr := f.Read(buf)
@@ -46,13 +46,13 @@ func (p *Pool) WriteFile(alias, path string, content []byte, permissions string)
 	if err != nil {
 		return fmt.Errorf("open SFTP session on %s: %w", alias, err)
 	}
-	defer sftpClient.Close()
+	defer func() { _ = sftpClient.Close() }()
 
 	f, err := sftpClient.Create(path)
 	if err != nil {
 		return fmt.Errorf("create %q on %s: %w", path, alias, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if _, err := f.Write(content); err != nil {
 		return fmt.Errorf("write %q on %s: %w", path, alias, err)

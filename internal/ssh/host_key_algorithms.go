@@ -84,8 +84,8 @@ func orderHostKeyAlgorithms(have map[string]struct{}) []string {
 		gossh.KeyAlgoECDSA256,
 		gossh.CertAlgoRSAv01,
 		gossh.KeyAlgoRSA,
-		gossh.InsecureCertAlgoDSAv01,
-		gossh.InsecureKeyAlgoDSA,
+		"ssh-dss-cert-v01@openssh.com",
+		"ssh-dss",
 	}
 	var out []string
 	for _, a := range pref {
