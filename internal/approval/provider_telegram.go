@@ -1,0 +1,242 @@
+package approval
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/ba0f3/lunacli/internal/config"
+)
+
+const telegramDefaultAPIBase = "https://api.telegram.org"
+
+// ErrTelegramCallbackUnauthorized means the Telegram user is not the configured approver.
+var ErrTelegramCallbackUnauthorized = errors.New("telegram callback unauthorized")
+
+// TelegramProvider sends approval prompts via Telegram Bot API sendMessage with an inline keyboard.
+type TelegramProvider struct {
+	svc             *Service
+	botToken        string
+	approverUserID  string
+	chatID          string
+	apiBase         string
+	httpClient      *http.Client
+	sendMessagePath string // tests override path segment after apiBase (default "/bot%s/sendMessage")
+}
+
+type telegramSendMessageBody struct {
+	ChatID      string               `json:"chat_id"`
+	Text        string               `json:"text"`
+	ReplyMarkup *telegramReplyMarkup `json:"reply_markup,omitempty"`
+}
+
+type telegramReplyMarkup struct {
+	InlineKeyboard [][]telegramInlineButton `json:"inline_keyboard"`
+}
+
+type telegramInlineButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
+}
+
+type telegramAPIResponse struct {
+	OK          bool   `json:"ok"`
+	Description string `json:"description"`
+}
+
+// TelegramProviderOptions configures TelegramProvider for tests or advanced setups.
+type TelegramProviderOptions struct {
+	BotToken       string
+	ApproverUserID string
+	ChatID         string // optional; defaults to ApproverUserID when empty (private chat with bot)
+	APIBaseURL     string // optional; default https://api.telegram.org
+	HTTPClient     *http.Client
+	// SendMessagePathFmt is fmt format with one verb for bot token, e.g. "/bot%s/sendMessage".
+	SendMessagePathFmt string
+}
+
+// NewTelegramProvider constructs a Telegram provider. Prefer NewTelegramProviderFromEnv for production.
+func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramProvider, error) {
+	if svc == nil {
+		return nil, errors.New("telegram provider: nil service")
+	}
+	token := strings.TrimSpace(opt.BotToken)
+	if token == "" {
+		return nil, errors.New("telegram provider: empty bot token")
+	}
+	approver := strings.TrimSpace(opt.ApproverUserID)
+	if approver == "" {
+		return nil, errors.New("telegram provider: empty approver user id")
+	}
+	chat := strings.TrimSpace(opt.ChatID)
+	if chat == "" {
+		chat = approver
+	}
+	base := strings.TrimSuffix(strings.TrimSpace(opt.APIBaseURL), "/")
+	if base == "" {
+		base = telegramDefaultAPIBase
+	}
+	pathFmt := opt.SendMessagePathFmt
+	if pathFmt == "" {
+		pathFmt = "/bot%s/sendMessage"
+	}
+	sendPath := fmt.Sprintf(pathFmt, token)
+	client := opt.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	return &TelegramProvider{
+		svc:             svc,
+		botToken:        token,
+		approverUserID:  approver,
+		chatID:          chat,
+		apiBase:         base,
+		httpClient:      client,
+		sendMessagePath: sendPath,
+	}, nil
+}
+
+// Name implements Provider.
+func (tg *TelegramProvider) Name() string { return "telegram" }
+
+// Notify implements Provider.
+func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest) error {
+	text := fmt.Sprintf(
+		"Luna approval required\nRequest ID: %s\nHost: %s\nCommand: %s\nExpires (UTC): %s\nFingerprint prefix: %s",
+		pending.ID,
+		req.Host,
+		req.Command,
+		pending.ExpiresAt.UTC().Format(time.RFC3339),
+		pending.FingerprintPrefix,
+	)
+	body := telegramSendMessageBody{
+		ChatID: tg.chatID,
+		Text:   text,
+		ReplyMarkup: &telegramReplyMarkup{
+			InlineKeyboard: [][]telegramInlineButton{
+				{
+					{Text: "Approve", CallbackData: "approve:" + pending.ID},
+					{Text: "Deny", CallbackData: "deny:" + pending.ID},
+				},
+			},
+		},
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("telegram sendMessage: marshal body: %w", err)
+	}
+	urlStr := tg.apiBase + tg.sendMessagePath
+	httpReq, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("telegram sendMessage: build request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := tg.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("telegram sendMessage: %w", err)
+	}
+	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("telegram sendMessage: read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("telegram sendMessage: HTTP %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var api telegramAPIResponse
+	if err := json.Unmarshal(respBody, &api); err != nil {
+		return fmt.Errorf("telegram sendMessage: decode response: %w", err)
+	}
+	if !api.OK {
+		desc := strings.TrimSpace(api.Description)
+		if desc == "" {
+			desc = string(respBody)
+		}
+		return fmt.Errorf("telegram sendMessage: api error: %s", desc)
+	}
+	return nil
+}
+
+// HandleCallback applies an inline-keyboard callback after verifying the Telegram user id.
+// data must be approve:<id> or deny:<id>.
+func (tg *TelegramProvider) HandleCallback(userID string, data string) error {
+	action, approvalID, ok := parseTelegramCallback(strings.TrimSpace(data))
+	if !ok {
+		return fmt.Errorf("telegram callback: invalid callback_data")
+	}
+
+	normalizedCaller := strings.TrimSpace(userID)
+	normalizedApprover := strings.TrimSpace(tg.approverUserID)
+	if normalizedCaller != normalizedApprover {
+		if _, err := tg.svc.Get(approvalID); err == nil {
+			detail := fmt.Sprintf(`{"telegram_user_id":%q,"expected":%q}`, normalizedCaller, normalizedApprover)
+			_ = tg.svc.AppendAudit(AuditEvent{
+				ApprovalID: approvalID,
+				EventType:  "telegram_callback_unauthorized",
+				Detail:     detail,
+				CreatedAt:  time.Now().UTC(),
+			})
+		}
+		return ErrTelegramCallbackUnauthorized
+	}
+
+	approverLabel := normalizedCaller
+	switch action {
+	case "approve":
+		return tg.svc.Approve(approvalID, approverLabel, tg.Name())
+	case "deny":
+		return tg.svc.Deny(approvalID, approverLabel, tg.Name())
+	default:
+		return fmt.Errorf("telegram callback: unknown action %q", action)
+	}
+}
+
+func parseTelegramCallback(data string) (action string, approvalID string, ok bool) {
+	action, rest, found := strings.Cut(data, ":")
+	if !found || strings.TrimSpace(action) == "" || strings.TrimSpace(rest) == "" {
+		return "", "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "approve":
+		return "approve", strings.TrimSpace(rest), true
+	case "deny":
+		return "deny", strings.TrimSpace(rest), true
+	default:
+		return "", "", false
+	}
+}
+
+// NewTelegramProviderFromSettings constructs TelegramProvider from config files and env.
+func NewTelegramProviderFromSettings(svc *Service, cfg *config.Settings) (*TelegramProvider, error) {
+	token, err := cfg.TelegramBotToken()
+	if err != nil {
+		return nil, err
+	}
+	approver := cfg.TelegramApproverUserID()
+	if approver == "" {
+		return nil, errors.New("telegram approver_user_id is required (config or LUNA_TELEGRAM_APPROVER_USER_ID)")
+	}
+	return NewTelegramProvider(svc, TelegramProviderOptions{
+		BotToken:       token,
+		ApproverUserID: approver,
+		ChatID:         cfg.TelegramChatID(),
+	})
+}
+
+// NewTelegramProviderFromEnv constructs TelegramProvider using JSON config and LUNA_TELEGRAM_* env.
+func NewTelegramProviderFromEnv(svc *Service) (*TelegramProvider, error) {
+	s, err := config.LoadSettings()
+	if err != nil {
+		return nil, err
+	}
+	return NewTelegramProviderFromSettings(svc, s)
+}

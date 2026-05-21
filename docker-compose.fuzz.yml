@@ -1,0 +1,37 @@
+services:
+  fuzz-sandbox:
+    image: luna-fuzz-sandbox
+    container_name: fuzz-sandbox
+    build:
+      context: .
+      dockerfile: interceptor/Dockerfile.fuzz
+      target: sandbox
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=4m,noexec
+    network_mode: none
+    mem_limit: 256m
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    command: sleep infinity
+
+  fuzz-harness:
+    build:
+      context: .
+      dockerfile: interceptor/Dockerfile.fuzz
+      target: harness
+    environment:
+      LUNA_FUZZ_CONTAINER: fuzz-sandbox
+      FUZZ_TIME: ${FUZZ_TIME:-30m}
+    volumes:
+      - ./fuzz-corpus:/corpus
+      - ./fuzz-crashes:/crashes
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      -test.fuzz=FuzzMutationBypass
+      -test.fuzztime=${FUZZ_TIME:-30m}
+      -test.fuzzcachedir=/corpus
+    depends_on:
+      - fuzz-sandbox

@@ -1,0 +1,21 @@
+# Built binaries
+bin/
+
+# Real host configs (contain IP addresses / usernames)
+hosts.yaml
+
+# Go artifacts
+vendor/
+
+# Local feature worktrees
+.worktrees/
+
+# Logs
+*.log
+
+# Fuzzing
+fuzz-corpus/
+fuzz-crashes/
+
+# Data
+!.gitkeep

@@ -1,0 +1,133 @@
+package tools
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/ba0f3/lunacli/internal/approval"
+	"github.com/ba0f3/lunacli/internal/engine"
+	"github.com/ba0f3/lunacli/internal/ssh"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+)
+
+func registerExecuteRemote(s *server.MCPServer, pool *ssh.Pool, eng *engine.Engine, gate *approval.Gate) {
+	tool := mcp.NewTool("execute_remote",
+		mcp.WithDescription(`Execute a shell command on a remote Linux host via SSH.
+
+READ-ONLY BY DEFAULT: Commands that modify system state require out-of-band human
+approval. Never retry a mutating command without a valid approval_id from a prior
+PERMISSION_REQUIRED response.
+
+Mutating commands: first call returns PERMISSION_REQUIRED with approval_id,
+expires_at, and fingerprint_prefix. After human approval out-of-band, retry with
+the same host, command, timeout_sec, and approval_id.
+
+Returns: stdout, stderr, exit_code, duration, and security classification.
+
+BLOCKED means permanently forbidden. PERMISSION_REQUIRED means stop and obtain
+human approval before retrying with approval_id.`),
+		mcp.WithString("host",
+			mcp.Required(),
+			mcp.Description("Target host in format [user@]hostname[:port] (e.g. ubuntu@192.168.1.50). Uses current user and port 22 if omitted."),
+		),
+		mcp.WithString("command",
+			mcp.Required(),
+			mcp.Description("Shell command to execute on the remote host"),
+		),
+		mcp.WithNumber("timeout_sec",
+			mcp.Description("Execution timeout in seconds (default: 30, max: 300)"),
+		),
+		mcp.WithString("approval_id",
+			mcp.Description("UUID from a prior PERMISSION_REQUIRED response; must match the same host, command (after redaction), and timeout_sec"),
+		),
+	)
+
+	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		host, err := req.RequireString("host")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		command, err := req.RequireString("command")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		timeoutSec := req.GetFloat("timeout_sec", 30)
+		if timeoutSec <= 0 || timeoutSec > 300 {
+			timeoutSec = 30
+		}
+		timeout := time.Duration(timeoutSec) * time.Second
+
+		approvalID := strings.TrimSpace(req.GetString("approval_id", ""))
+
+		check := eng.Classify(command, host, nil)
+		log.Printf("execute_remote host=%s class=%s approval_id=%q cmd=%q",
+			host, check.Class, approvalID, command)
+
+		gateRes := gate.CheckExecuteRemote(check, host, command, timeoutSec, approvalID)
+		switch gateRes.Kind {
+		case approval.GateBlocked:
+			log.Printf("BLOCKED host=%s cmd=%q reason=%s", host, command, check.Reason)
+			return mcp.NewToolResultText(fmt.Sprintf(
+				"%s\n\nCommand: %q\n\nThis command is permanently forbidden and cannot be executed.",
+				gateRes.BlockedText, command,
+			)), nil
+		case approval.GatePermissionRequired:
+			log.Printf("PERMISSION_REQUIRED host=%s cmd=%q", host, command)
+			return mcp.NewToolResultText(gateRes.PermissionText), nil
+		case approval.GateExecute:
+			if check.Class == engine.Mutating {
+				log.Printf("MUTATING APPROVED host=%s cmd=%q", host, command)
+			}
+		default:
+			return mcp.NewToolResultError("internal error: unknown gate result"), nil
+		}
+
+		result, err := pool.Execute(host, command, timeout)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("SSH execution error: %v", err)), nil
+		}
+
+		log.Printf("execute_remote host=%s exit=%d duration=%s",
+			host, result.ExitCode, result.Duration)
+
+		return mcp.NewToolResultText(formatExecResult(host, command, check, result)), nil
+	})
+}
+
+func formatExecResult(host, command string, check engine.Result, r ssh.ExecResult) string {
+	var b strings.Builder
+
+	b.WriteString(fmt.Sprintf("Host:     %s\n", host))
+	b.WriteString(fmt.Sprintf("Command:  %s\n", command))
+	b.WriteString(fmt.Sprintf("Class:    %s\n", check.Class))
+	b.WriteString(fmt.Sprintf("Exit:     %d\n", r.ExitCode))
+	b.WriteString(fmt.Sprintf("Duration: %s\n", r.Duration.Round(time.Millisecond)))
+	if check.Class == engine.Mutating {
+		b.WriteString("Mutations: APPROVED\n")
+	}
+
+	b.WriteString("\n--- STDOUT ---\n")
+	if strings.TrimSpace(r.Stdout) == "" {
+		b.WriteString("(empty)\n")
+	} else {
+		b.WriteString(r.Stdout)
+		if !strings.HasSuffix(r.Stdout, "\n") {
+			b.WriteString("\n")
+		}
+	}
+
+	if r.Stderr != "" {
+		b.WriteString("\n--- STDERR ---\n")
+		b.WriteString(r.Stderr)
+		if !strings.HasSuffix(r.Stderr, "\n") {
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}

@@ -1,0 +1,21 @@
+# Build harness
+FROM golang:1.25-bookworm AS builder
+WORKDIR /src
+COPY interceptor/ .
+RUN go test -c -fuzz=FuzzMutationBypass ./internal/security/ -o /fuzz.test
+
+# Sandbox container (read-only execution environment)
+FROM debian:bookworm-slim AS sandbox
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    coreutils findutils grep sed gawk curl wget \
+    procps net-tools iproute2 iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd -m fuzztarget
+USER fuzztarget
+
+# Harness container (runs the Go fuzzer)
+FROM debian:bookworm-slim AS harness
+# Install docker CLI to interact with sandbox
+RUN apt-get update && apt-get install -y --no-install-recommends docker.io ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /fuzz.test /fuzz.test
+ENTRYPOINT ["/fuzz.test"]
