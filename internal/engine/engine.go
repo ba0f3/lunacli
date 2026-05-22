@@ -69,7 +69,9 @@ func (e *Engine) Classify(command string, host string, tags []string) Result {
 		switch x := node.(type) {
 		case *syntax.Redirect:
 			if strings.Contains(x.Op.String(), ">") {
-				flag(Mutating, "command contains output redirection")
+				if path, ok := wordStaticString(x.Word); !ok || !isDiscardRedirectTarget(path) {
+					flag(Mutating, "command contains output redirection")
+				}
 			}
 		case *syntax.CmdSubst, *syntax.ProcSubst:
 			flag(Mutating, "command contains substitution")
@@ -236,4 +238,35 @@ func matchesArgsPrefix(args, prefixes []string) bool {
 		}
 	}
 	return true
+}
+
+// wordStaticString returns the redirect target when it is a static path (no globs/vars).
+func wordStaticString(w *syntax.Word) (string, bool) {
+	if w == nil {
+		return "", false
+	}
+	var b strings.Builder
+	for _, part := range w.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			b.WriteString(unescape(p.Value))
+		case *syntax.SglQuoted:
+			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			for _, dp := range p.Parts {
+				if dpl, ok := dp.(*syntax.Lit); ok {
+					b.WriteString(unescape(dpl.Value))
+				} else {
+					return "", false
+				}
+			}
+		default:
+			return "", false
+		}
+	}
+	return strings.TrimSpace(b.String()), true
+}
+
+func isDiscardRedirectTarget(path string) bool {
+	return filepath.Clean(path) == "/dev/null"
 }

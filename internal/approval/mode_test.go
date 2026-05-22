@@ -1,12 +1,25 @@
 package approval
 
 import (
+	"os"
 	"testing"
 	"time"
 )
 
-func TestLoadConfigFromEnv_DefaultTTL(t *testing.T) {
+func isolatedConfigEnv(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	project := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LUNA_CONFIG_DIR", "")
 	t.Setenv("LUNA_APPROVAL_TTL", "")
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadConfigFromEnv_DefaultTTL(t *testing.T) {
+	isolatedConfigEnv(t)
 
 	cfg, err := LoadConfigFromEnv()
 	if err != nil {
@@ -18,6 +31,7 @@ func TestLoadConfigFromEnv_DefaultTTL(t *testing.T) {
 }
 
 func TestLoadConfigFromEnv_CustomTTL(t *testing.T) {
+	isolatedConfigEnv(t)
 	t.Setenv("LUNA_APPROVAL_TTL", "2m")
 
 	cfg, err := LoadConfigFromEnv()
@@ -30,6 +44,7 @@ func TestLoadConfigFromEnv_CustomTTL(t *testing.T) {
 }
 
 func TestLoadConfigFromEnv_InvalidTTL(t *testing.T) {
+	isolatedConfigEnv(t)
 	t.Setenv("LUNA_APPROVAL_TTL", "not-a-duration")
 
 	_, err := LoadConfigFromEnv()
