@@ -33,14 +33,23 @@ builds:
       - arm64
 
 archives:
-  - ids:
+  - id: luna
+    ids:
       - luna
-      - ssh-debug
-    format: tar.gz
+    formats:
+      - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
+
+  - id: ssh-debug
+    ids:
+      - ssh-debug
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}-ssh-debug_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: checksums.txt
@@ -57,11 +66,11 @@ release:
 homebrew_casks:
   - name: lunacli
     ids:
-      - default
+      - luna
     binaries:
-      - lunacli
+      - luna
     homepage: https://github.com/ba0f3/lunacli
-    description: Agent-first CLI for the Luna API
+    description: Zero-trust stdio MCP server for secure remote SSH commands
     repository:
       owner: ba0f3
       name: lunacli
