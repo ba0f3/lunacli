@@ -13,6 +13,15 @@ func isolatedConfigEnv(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("LUNA_CONFIG_DIR", "")
 	t.Setenv("LUNA_APPROVAL_TTL", "")
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWd); err != nil {
+			t.Fatal(err)
+		}
+	})
 	if err := os.Chdir(project); err != nil {
 		t.Fatal(err)
 	}

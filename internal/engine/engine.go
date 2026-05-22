@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -246,12 +247,14 @@ func wordStaticString(w *syntax.Word) (string, bool) {
 		return "", false
 	}
 	var b strings.Builder
+	quoted := false
 	for _, part := range w.Parts {
 		switch p := part.(type) {
 		case *syntax.Lit:
 			b.WriteString(unescape(p.Value))
 		case *syntax.SglQuoted:
 			b.WriteString(p.Value)
+			quoted = true
 		case *syntax.DblQuoted:
 			for _, dp := range p.Parts {
 				if dpl, ok := dp.(*syntax.Lit); ok {
@@ -260,13 +263,17 @@ func wordStaticString(w *syntax.Word) (string, bool) {
 					return "", false
 				}
 			}
+			quoted = true
 		default:
 			return "", false
 		}
 	}
+	if quoted {
+		return b.String(), true
+	}
 	return strings.TrimSpace(b.String()), true
 }
 
-func isDiscardRedirectTarget(path string) bool {
-	return filepath.Clean(path) == "/dev/null"
+func isDiscardRedirectTarget(target string) bool {
+	return path.Clean(target) == "/dev/null"
 }
