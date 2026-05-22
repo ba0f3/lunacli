@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -19,17 +20,16 @@ func registerExecuteRemote(s *server.MCPServer, pool *ssh.Pool, eng *engine.Engi
 		mcp.WithDescription(`Execute a shell command on a remote Linux host via SSH.
 
 READ-ONLY BY DEFAULT: Commands that modify system state require out-of-band human
-approval. Never retry a mutating command without a valid approval_id from a prior
-PERMISSION_REQUIRED response.
+approval via Telegram (or configured provider). The tool blocks until the human
+approves or denies, or the approval expires.
 
-Mutating commands: first call returns PERMISSION_REQUIRED with approval_id,
-expires_at, and fingerprint_prefix. After human approval out-of-band, retry with
-the same host, command, timeout_sec, and approval_id.
+Optional approval_id: supply a UUID from a prior interrupted call to resume
+waiting on the same pending approval (same host, command, timeout_sec).
 
 Returns: stdout, stderr, exit_code, duration, and security classification.
 
-BLOCKED means permanently forbidden. PERMISSION_REQUIRED means stop and obtain
-human approval before retrying with approval_id.`),
+BLOCKED means permanently forbidden. PERMISSION_REQUIRED means approval was denied,
+expired, invalid, or the wait was cancelled.`),
 		mcp.WithString("host",
 			mcp.Required(),
 			mcp.Description("Target host in format [user@]hostname[:port] (e.g. ubuntu@192.168.1.50). Uses current user and port 22 if omitted."),
@@ -77,6 +77,28 @@ human approval before retrying with approval_id.`),
 				gateRes.BlockedText, command,
 			)), nil
 		case approval.GatePermissionRequired:
+			if gateRes.ApprovalID != "" && approvalID == "" {
+				log.Printf("waiting for approval %s host=%s cmd=%q", gateRes.ApprovalID, host, command)
+				waitCtx := ctx
+				if deadline, ok := ctx.Deadline(); !ok || gateRes.ExpiresAt.Before(deadline) {
+					var cancel context.CancelFunc
+					waitCtx, cancel = context.WithDeadline(ctx, gateRes.ExpiresAt)
+					defer cancel()
+				}
+				if _, waitErr := gate.WaitForDecision(waitCtx, gateRes.ApprovalID); waitErr != nil {
+					log.Printf("approval wait ended host=%s id=%s err=%v", host, gateRes.ApprovalID, waitErr)
+					return mcp.NewToolResultText(formatApprovalWaitError(waitErr, gateRes)), nil
+				}
+				gateRes = gate.CheckExecuteRemote(check, host, command, timeoutSec, gateRes.ApprovalID)
+				if gateRes.Kind != approval.GateExecute {
+					log.Printf("PERMISSION_REQUIRED after wait host=%s cmd=%q", host, command)
+					return mcp.NewToolResultText(gateRes.PermissionText), nil
+				}
+				if check.Class == engine.Mutating {
+					log.Printf("MUTATING APPROVED host=%s cmd=%q", host, command)
+				}
+				break
+			}
 			log.Printf("PERMISSION_REQUIRED host=%s cmd=%q", host, command)
 			return mcp.NewToolResultText(gateRes.PermissionText), nil
 		case approval.GateExecute:
@@ -130,4 +152,19 @@ func formatExecResult(host, command string, check engine.Result, r ssh.ExecResul
 	}
 
 	return b.String()
+}
+
+func formatApprovalWaitError(waitErr error, gateRes approval.GateResult) string {
+	switch {
+	case errors.Is(waitErr, approval.ErrDenied):
+		return fmt.Sprintf("PERMISSION_REQUIRED: approval denied\n\napproval_id: %s", gateRes.ApprovalID)
+	case errors.Is(waitErr, approval.ErrExpired):
+		return fmt.Sprintf("PERMISSION_REQUIRED: approval expired\n\napproval_id: %s\nexpires_at: %s",
+			gateRes.ApprovalID, gateRes.ExpiresAt.UTC().Format(time.RFC3339))
+	case errors.Is(waitErr, context.DeadlineExceeded), errors.Is(waitErr, context.Canceled):
+		return fmt.Sprintf("PERMISSION_REQUIRED: approval wait ended (%v)\n\napproval_id: %s\nexpires_at: %s\n\nApprove via Telegram, then retry with the same host, command, timeout_sec, and approval_id.",
+			waitErr, gateRes.ApprovalID, gateRes.ExpiresAt.UTC().Format(time.RFC3339))
+	default:
+		return fmt.Sprintf("PERMISSION_REQUIRED: %v\n\n%s", waitErr, gateRes.PermissionText)
+	}
 }

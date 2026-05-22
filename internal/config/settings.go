@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	localConfigFile      = "luna.config.json"
-	cwdConfigJSONRelPath = ".config/luna.config.json"
-	userConfigRelPath    = ".config/luna/config.json"
-	dotEnvFile           = ".env"
+	localConfigFile         = "luna.config.json"
+	cwdConfigJSONRelPath    = ".config/luna.config.json"
+	userConfigRelPath       = ".config/luna/config.json"
+	homeLunaConfigJSONRelPath = ".config/luna/luna.config.json"
+	dotEnvFile              = ".env"
 )
 
 // FileSettings is the JSON configuration schema (all fields optional).
@@ -51,8 +52,8 @@ type Settings struct {
 // apply environment overrides.
 //
 // Precedence (lowest to highest): JSON config files (~/.config/luna/config.json,
-// then $CWD/.config/luna/config.json, then $CWD/.config/luna.config.json, then
-// $CWD/luna.config.json), then $CWD/.env
+// ~/.config/luna/luna.config.json, then $CWD/.config/luna/config.json, then
+// $CWD/.config/luna.config.json, then $CWD/luna.config.json), then $CWD/.env
 // (does not override variables already set in the process environment).
 func LoadSettings() (*Settings, error) {
 	if err := loadDotEnv(); err != nil {
@@ -92,7 +93,10 @@ func loadDotEnv() error {
 func settingsFilePaths() []string {
 	var paths []string
 	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, userConfigRelPath))
+		paths = append(paths,
+			filepath.Join(home, userConfigRelPath),
+			filepath.Join(home, homeLunaConfigJSONRelPath),
+		)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -152,21 +156,94 @@ func envFirst(envKey, fileVal string) string {
 	return strings.TrimSpace(fileVal)
 }
 
+// expandPath expands a leading ~ to the user home directory (~/.foo -> /home/user/.foo).
+func expandPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || path[0] != '~' {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	if len(path) > 1 && (path[1] == '/' || path[1] == '\\') {
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
 // ConfigDir resolves the directory containing policy.yml and hosts.yml.
 func (s *Settings) ConfigDir() string {
 	if v := envFirst("LUNA_CONFIG_DIR", s.file.ConfigDir); v != "" {
-		return v
+		return resolveConfigDir(v)
 	}
-	for _, dir := range []string{"./luna.d", "./.config/luna.d"} {
-		if _, err := os.Stat(dir); err == nil {
+	return discoverConfigDir()
+}
+
+func hasPolicyFile(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "policy.yml"))
+	return err == nil
+}
+
+func configDirBases() []string {
+	var bases []string
+	if cwd, err := os.Getwd(); err == nil {
+		bases = append(bases, cwd)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		bases = append(bases, filepath.Join(home, ".config", "luna"))
+	}
+	return bases
+}
+
+func resolveConfigDir(dir string) string {
+	dir = expandPath(dir)
+	if hasPolicyFile(dir) {
+		return dir
+	}
+	relPaths := []string{dir}
+	if filepath.ToSlash(dir) == ".config/luna.d" {
+		relPaths = append(relPaths, "luna.d")
+	}
+	for _, rel := range relPaths {
+		if filepath.IsAbs(rel) && hasPolicyFile(rel) {
+			return rel
+		}
+		for _, base := range configDirBases() {
+			candidate := filepath.Join(base, rel)
+			if hasPolicyFile(candidate) {
+				abs, err := filepath.Abs(candidate)
+				if err == nil {
+					return abs
+				}
+				return candidate
+			}
+		}
+	}
+	return dir
+}
+
+func discoverConfigDir() string {
+	candidates := []string{"./luna.d", "./.config/luna.d"}
+	if home, err := os.UserHomeDir(); err == nil {
+		lunaHome := filepath.Join(home, ".config", "luna")
+		candidates = append(candidates,
+			filepath.Join(lunaHome, "luna.d"),
+			filepath.Join(lunaHome, ".config", "luna.d"),
+			lunaHome,
+		)
+	}
+	candidates = append(candidates, "/etc/luna")
+	for _, dir := range candidates {
+		if hasPolicyFile(dir) {
 			return dir
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		path := filepath.Join(home, ".config", "luna")
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
+		return filepath.Join(home, ".config", "luna")
 	}
 	return "/etc/luna"
 }
@@ -186,7 +263,7 @@ func (s *Settings) ApprovalTTL() (time.Duration, error) {
 
 // AuditFile returns the audit log path if configured.
 func (s *Settings) AuditFile() string {
-	return envFirst("LUNA_AUDIT_FILE", s.file.Audit.File)
+	return expandPath(envFirst("LUNA_AUDIT_FILE", s.file.Audit.File))
 }
 
 // TelegramBotToken resolves bot token from env, inline json, or token file.
@@ -197,7 +274,7 @@ func (s *Settings) TelegramBotToken() (string, error) {
 	if v := strings.TrimSpace(s.file.Telegram.BotToken); v != "" {
 		return v, nil
 	}
-	path := envFirst("LUNA_TELEGRAM_BOT_TOKEN_FILE", s.file.Telegram.BotTokenFile)
+	path := expandPath(envFirst("LUNA_TELEGRAM_BOT_TOKEN_FILE", s.file.Telegram.BotTokenFile))
 	if path == "" {
 		return "", errors.New("set telegram bot_token, bot_token_file in config, or LUNA_TELEGRAM_BOT_TOKEN / LUNA_TELEGRAM_BOT_TOKEN_FILE")
 	}

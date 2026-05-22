@@ -46,7 +46,7 @@ release:
 homebrew_casks:
   - name: luna
     ids:
-      - default
+      - luna
     binaries:
       - luna
     homepage: https://github.com/ba0f3/lunacli

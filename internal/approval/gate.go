@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -36,6 +37,14 @@ type Gate struct {
 
 func NewGate(cfg Config, svc *Service, providers *ProviderSet) *Gate {
 	return &Gate{cfg: cfg, svc: svc, providers: providers}
+}
+
+// WaitForDecision blocks until the approval is decided or ctx ends.
+func (g *Gate) WaitForDecision(ctx context.Context, id string) (Status, error) {
+	if g.svc == nil {
+		return "", fmt.Errorf("approval service not configured")
+	}
+	return g.svc.WaitForDecision(ctx, id)
 }
 
 func (g *Gate) CheckExecuteRemote(check engine.Result, host, command string, timeoutSec float64, approvalID string) GateResult {

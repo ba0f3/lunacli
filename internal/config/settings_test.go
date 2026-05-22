@@ -163,6 +163,94 @@ func TestLoadSettings_DotEnvDoesNotOverrideProcessEnv(t *testing.T) {
 	}
 }
 
+func TestLoadSettings_HomeLunaConfigJSONResolvesLunaD(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LUNA_CONFIG_DIR", "")
+
+	lunaHome := filepath.Join(home, ".config", "luna")
+	lunaD := filepath.Join(lunaHome, "luna.d")
+	if err := os.MkdirAll(lunaD, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lunaD, "policy.yml"), []byte("version: 1\nrules: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lunaHome, "luna.config.json"),
+		[]byte(`{"config_dir":".config/luna.d"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(project)
+
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.ConfigDir()
+	if !hasPolicyFile(got) {
+		t.Fatalf("ConfigDir = %q, want a directory containing policy.yml", got)
+	}
+	want := filepath.Join(lunaHome, "luna.d")
+	absWant, err := filepath.Abs(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absGot, err := filepath.Abs(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absGot != absWant {
+		t.Errorf("ConfigDir = %q, want %q", absGot, absWant)
+	}
+}
+
+func TestExpandPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if got := expandPath("~"); got != home {
+		t.Errorf("expandPath(~) = %q, want %q", got, home)
+	}
+	want := filepath.Join(home, ".config", "luna", "luna.d")
+	if got := expandPath("~/.config/luna/luna.d"); got != want {
+		t.Errorf("expandPath(~/.config/luna/luna.d) = %q, want %q", got, want)
+	}
+	if got := expandPath("./luna.d"); got != "./luna.d" {
+		t.Errorf("expandPath(./luna.d) = %q, want ./luna.d", got)
+	}
+}
+
+func TestLoadSettings_TildeConfigDir(t *testing.T) {
+	home := t.TempDir()
+	project := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LUNA_CONFIG_DIR", "")
+
+	lunaD := filepath.Join(home, ".config", "luna", "luna.d")
+	if err := os.MkdirAll(lunaD, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lunaD, "policy.yml"), []byte("version: 1\nrules: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, localConfigFile),
+		[]byte(`{"config_dir":"~/.config/luna/luna.d"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(project)
+
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasPolicyFile(s.ConfigDir()) {
+		t.Fatalf("ConfigDir = %q, want directory containing policy.yml", s.ConfigDir())
+	}
+}
+
 func TestLoadSettings_MissingFilesOK(t *testing.T) {
 	home := t.TempDir()
 	project := t.TempDir()
