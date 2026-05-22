@@ -14,7 +14,10 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-const nvdCVEAPI = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+const (
+	mitreCVEAPI = "https://cveawg.mitre.org/api/cve"
+	nvdCVEAPI   = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+)
 
 var cveIDPattern = regexp.MustCompile(`(?i)^CVE-\d{4}-\d{4,}$`)
 
@@ -34,7 +37,7 @@ type CVELookupResult struct {
 
 func registerLookupCVE(s *server.MCPServer) {
 	tool := mcp.NewTool("lookup_cve",
-		mcp.WithDescription("Look up a CVE from external advisory sources and return normalized JSON advisory evidence."),
+		mcp.WithDescription("Look up a CVE from external advisory sources and return normalized JSON advisory evidence. Tries the MITRE CVE API first, then NVD."),
 		mcp.WithString("cve_id",
 			mcp.Required(),
 			mcp.Description("CVE ID such as CVE-2024-3094"),
@@ -58,15 +61,7 @@ func registerLookupCVE(s *server.MCPServer) {
 		}
 
 		client := &http.Client{Timeout: 20 * time.Second}
-		result, err := fetchNVDLookup(nvdCVEAPI, cveID, client)
-		if err != nil {
-			result = CVELookupResult{
-				SchemaVersion: "luna.cve.v1",
-				ID:            cveID,
-				Source:        "nvd",
-				Errors:        []string{err.Error()},
-			}
-		}
+		result := lookupCVE(cveID, client)
 		payload, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("lookup_cve marshal error: %v", err)), nil
@@ -78,6 +73,131 @@ func registerLookupCVE(s *server.MCPServer) {
 func normalizeCVEID(raw string) (string, bool) {
 	id := strings.ToUpper(strings.TrimSpace(raw))
 	return id, cveIDPattern.MatchString(id)
+}
+
+func lookupCVE(cveID string, client *http.Client) CVELookupResult {
+	result, mitreErr := fetchMITRECVELookup(mitreCVEAPI, cveID, client)
+	if mitreErr == nil {
+		return result
+	}
+
+	result, err := fetchNVDLookup(nvdCVEAPI, cveID, client)
+	if err != nil {
+		errs := []string{fmt.Sprintf("mitre: %v", mitreErr), fmt.Sprintf("nvd: %v", err)}
+		return CVELookupResult{
+			SchemaVersion: "luna.cve.v1",
+			ID:            cveID,
+			Source:        "nvd",
+			Errors:        errs,
+		}
+	}
+	if mitreErr != nil {
+		result.Errors = append([]string{fmt.Sprintf("mitre: %v", mitreErr)}, result.Errors...)
+	}
+	return result
+}
+
+func fetchMITRECVELookup(baseURL, cveID string, client *http.Client) (CVELookupResult, error) {
+	endpoint := strings.TrimSuffix(baseURL, "/") + "/" + cveID
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return CVELookupResult{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return CVELookupResult{}, fmt.Errorf("MITRE CVE API returned no record for %s", cveID)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return CVELookupResult{}, fmt.Errorf("MITRE CVE API lookup failed with HTTP %d", resp.StatusCode)
+	}
+
+	var payload mitreCVERecord
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return CVELookupResult{}, err
+	}
+	if payload.DataType != "CVE_RECORD" || payload.CVEMetadata.CVEID == "" {
+		return CVELookupResult{}, fmt.Errorf("MITRE CVE API returned unexpected record for %s", cveID)
+	}
+
+	result := CVELookupResult{
+		SchemaVersion: "luna.cve.v1",
+		ID:            payload.CVEMetadata.CVEID,
+		Source:        "mitre",
+		Published:     payload.CVEMetadata.DatePublished,
+		LastModified:  payload.CVEMetadata.DateUpdated,
+	}
+	cna := payload.Containers.CNA
+	for _, desc := range cna.Descriptions {
+		if desc.Lang == "en" && desc.Value != "" {
+			result.Summary = desc.Value
+			break
+		}
+	}
+	setMITRECVSSFields(&result, cna.Metrics)
+	for _, ref := range cna.References {
+		if ref.URL != "" {
+			result.References = append(result.References, ref.URL)
+		}
+	}
+	return result, nil
+}
+
+func setMITRECVSSFields(result *CVELookupResult, metrics []mitreCVSSMetric) {
+	for _, m := range metrics {
+		if m.Format != "CVSS" {
+			continue
+		}
+		if m.CVSSV31 != nil {
+			result.CVSSScore = m.CVSSV31.BaseScore
+			result.Severity = strings.ToUpper(m.CVSSV31.BaseSeverity)
+			result.CVSSVector = m.CVSSV31.VectorString
+			return
+		}
+	}
+	for _, m := range metrics {
+		if m.Format != "CVSS" || m.CVSSV40 == nil {
+			continue
+		}
+		result.CVSSScore = m.CVSSV40.BaseScore
+		result.Severity = strings.ToUpper(m.CVSSV40.BaseSeverity)
+		result.CVSSVector = m.CVSSV40.VectorString
+		return
+	}
+}
+
+type mitreCVERecord struct {
+	DataType     string `json:"dataType"`
+	CVEMetadata  struct {
+		CVEID         string `json:"cveId"`
+		DatePublished string `json:"datePublished"`
+		DateUpdated   string `json:"dateUpdated"`
+	} `json:"cveMetadata"`
+	Containers struct {
+		CNA mitreCNABlock `json:"cna"`
+	} `json:"containers"`
+}
+
+type mitreCNABlock struct {
+	Descriptions []struct {
+		Lang  string `json:"lang"`
+		Value string `json:"value"`
+	} `json:"descriptions"`
+	References []struct {
+		URL string `json:"url"`
+	} `json:"references"`
+	Metrics []mitreCVSSMetric `json:"metrics"`
+}
+
+type mitreCVSSMetric struct {
+	Format  string          `json:"format"`
+	CVSSV31 *mitreCVSSScore `json:"cvssV3_1"`
+	CVSSV40 *mitreCVSSScore `json:"cvssV4_0"`
+}
+
+type mitreCVSSScore struct {
+	BaseScore    float64 `json:"baseScore"`
+	BaseSeverity string  `json:"baseSeverity"`
+	VectorString string  `json:"vectorString"`
 }
 
 func fetchNVDLookup(baseURL, cveID string, client *http.Client) (CVELookupResult, error) {
