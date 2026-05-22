@@ -1,12 +1,18 @@
-.PHONY: build test fuzz fuzz-race fmt lint tidy clean fuzz-bypass fuzz-docker-build fuzz-docker
+.PHONY: build test install fuzz fuzz-race fmt lint tidy clean fuzz-bypass fuzz-docker-build fuzz-docker
 
-BINARY := ./bin/luna
-GO     := go
+BINARY      := ./bin/luna
+INSTALL_DIR := $(HOME)/.local/bin
+GO          := go
 
 build:
 	@mkdir -p ./bin
 	$(GO) build -ldflags="-s -w" -o $(BINARY) ./main.go
 	@echo "Built: $(BINARY)"
+
+install: build
+	@mkdir -p $(INSTALL_DIR)
+	install -m 755 $(BINARY) $(INSTALL_DIR)/luna
+	@echo "Installed: $(INSTALL_DIR)/luna"
 
 test:
 	$(GO) test ./...
