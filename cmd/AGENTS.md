@@ -1,0 +1,16 @@
+# cmd — CLI Layer
+
+## OVERVIEW
+Cobra CLI commands for `luna`. Root command + subcommands registered via `init()`.
+
+## WHERE TO LOOK
+| What | File |
+|------|------|
+| Root CLI definition | `root.go` — `RootCmd` variable, `Execute()` |
+| MCP server entrypoint | `serve.go` — wires all deps, starts stdio server |
+| SSH diagnostics | `ssh-debug/main.go` — standalone binary (separate main pkg) |
+
+## CONVENTIONS
+- `log.Fatalf` is acceptable here (top-of-main) — not in library code
+- New commands: define `var XCmd = &cobra.Command{…}`, register in `init()`
+- Keep `cmd/` thin — all logic in `internal/`

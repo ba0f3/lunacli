@@ -53,3 +53,24 @@ release:
   github:
     owner: ba0f3
     name: lunacli
+
+homebrew_casks:
+  - name: lunacli
+    ids:
+      - default
+    binaries:
+      - lunacli
+    homepage: https://github.com/ba0f3/lunacli
+    description: Agent-first CLI for the Luna API
+    repository:
+      owner: ba0f3
+      name: lunacli
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    hooks:
+      post:
+        install: |
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/luna"] if OS.mac?

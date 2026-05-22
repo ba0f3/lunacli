@@ -25,3 +25,4 @@ fuzz-crashes/
 .config/
 .env
 .env.local
+.antigravitycli/
