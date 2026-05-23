@@ -4,6 +4,9 @@ BINARY      := ./bin/luna
 INSTALL_DIR := $(HOME)/.local/bin
 GO          := go
 
+onboard-bundle:
+	cd internal/onboard && go run gen_bundle.go
+
 build:
 	@mkdir -p ./bin
 	$(GO) build -ldflags="-s -w" -o $(BINARY) ./main.go
@@ -16,6 +19,9 @@ install: build
 
 test:
 	$(GO) test ./...
+
+vet:
+	$(GO) vet ./...
 
 # Native go-fuzz regression (seeds from Fuzz targets) + exploratory fuzz locally.
 fuzz:

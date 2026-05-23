@@ -81,6 +81,7 @@ func TestTelegramProvider_Poll_ApproveCallback(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

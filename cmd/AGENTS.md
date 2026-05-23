@@ -8,6 +8,7 @@ Cobra CLI commands for `luna`. Root command + subcommands registered via `init()
 |------|------|
 | Root CLI definition | `root.go` — `RootCmd` variable, `Execute()` |
 | MCP server entrypoint | `serve.go` — wires all deps, starts stdio server |
+| Interactive first-run setup | `onboard.go` — config, embedded policy, Telegram |
 | SSH diagnostics | `ssh-debug/main.go` — standalone binary (separate main pkg) |
 
 ## CONVENTIONS

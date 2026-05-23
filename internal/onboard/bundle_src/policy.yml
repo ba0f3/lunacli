@@ -1,0 +1,185 @@
+# Luna command policy (required for: luna serve)
+# Rules are evaluated top-to-bottom; first match wins.
+# Unmatched commands are mutating (require out-of-band approval).
+# See docs/zero-trust-interceptor.md and docs/superpowers/specs/2026-05-19-interceptor-redesign-design.md
+
+version: 1
+
+# Extra forbidden patterns (supplements compiled safety net in the binary)
+deny_patterns:
+  - "curl.*--upload-file"
+  - "wget.*--post-data"
+  - "scp .*:"
+
+rules:
+  # --- Read-only observability (all hosts) ---
+  - action: allow
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: uptime
+      - binary: whoami
+      - binary: hostname
+      - binary: date
+      - binary: uname
+      - binary: id
+      - binary: w
+      - binary: who
+      - binary: last
+      - binary: df
+        args_prefix: ["-h"]
+      - binary: free
+        args_prefix: ["-m"]
+      - binary: ps
+        args_prefix: ["aux"]
+      - binary: top
+        args_prefix: ["-bn1"]
+      - binary: lsblk
+      - binary: lscpu
+      - binary: ss
+      - binary: ip
+        args_prefix: ["addr"]
+      - binary: ip
+        args_prefix: ["link"]
+      - binary: ip
+        args_prefix: ["route"]
+
+  # Log and file inspection (read-only tools only)
+  - action: allow
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: journalctl
+      - binary: cat
+      - binary: head
+      - binary: tail
+      - binary: less
+      - binary: grep
+      - binary: sort
+      - binary: uniq
+      - binary: wc
+      - binary: cut
+      - binary: diff
+
+  # Service status (read-only systemctl subcommands)
+  - action: allow
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: systemctl
+        args_prefix: ["status"]
+      - binary: systemctl
+        args_prefix: ["is-active"]
+      - binary: systemctl
+        args_prefix: ["is-enabled"]
+      - binary: systemctl
+        args_prefix: ["list-units"]
+      - binary: systemctl
+        args_prefix: ["cat"]
+
+  # Docker read-only
+  - action: allow
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: docker
+        args_prefix: ["ps"]
+      - binary: docker
+        args_prefix: ["images"]
+      - binary: docker
+        args_prefix: ["logs"]
+      - binary: docker
+        args_prefix: ["inspect"]
+      - binary: docker
+        args_prefix: ["stats"]
+      - binary: docker
+        args_prefix: ["info"]
+      - binary: docker
+        args_prefix: ["version"]
+
+  # kubectl read-only
+  - action: allow
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: kubectl
+        args_prefix: ["get"]
+      - binary: kubectl
+        args_prefix: ["describe"]
+      - binary: kubectl
+        args_prefix: ["logs"]
+      - binary: kubectl
+        args_prefix: ["top"]
+
+  # --- Mutating: require out-of-band approval ---
+  - action: approve
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: systemctl
+        args_prefix: ["restart"]
+      - binary: systemctl
+        args_prefix: ["start"]
+      - binary: systemctl
+        args_prefix: ["stop"]
+      - binary: systemctl
+        args_prefix: ["reload"]
+      - binary: systemctl
+        args_prefix: ["enable"]
+      - binary: systemctl
+        args_prefix: ["disable"]
+
+  - action: approve
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: apt
+      - binary: apt-get
+      - binary: yum
+      - binary: dnf
+      - binary: pip
+      - binary: npm
+
+  - action: approve
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: cp
+      - binary: mv
+      - binary: mkdir
+      - binary: rm
+      - binary: touch
+      - binary: chmod
+      - binary: chown
+      - binary: tee
+      - binary: tar
+      - binary: unzip
+
+  - action: approve
+    hosts: ["*"]
+    tags: ["*"]
+    commands:
+      - binary: docker
+        args_prefix: ["start"]
+      - binary: docker
+        args_prefix: ["stop"]
+      - binary: docker
+        args_prefix: ["restart"]
+      - binary: docker
+        args_prefix: ["rm"]
+      - binary: docker
+        args_prefix: ["pull"]
+      - binary: docker
+        args_prefix: ["run"]
+      - binary: docker
+        args_prefix: ["exec"]
+
+  # Example: stricter production web tier — deny package managers on prod web only
+  # (Place more specific rules above broader approve rules when you add host-specific policy.)
+  # - action: deny
+  #   hosts: ["ubuntu@10.0.1.10", "ubuntu@10.0.1.11"]
+  #   tags: [production]
+  #   commands:
+  #     - binary: apt-get
+
+  # Everything else: implicit mutating (deny-by-default)

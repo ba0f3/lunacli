@@ -4,6 +4,8 @@ Starter **`policy.yml`** and **`hosts.yml`** for the zero-trust interceptor.
 
 ## Install
 
+Run `luna onboard` for interactive setup, or copy manually.
+
 Pick one config directory (see [zero-trust-interceptor.md](../../docs/zero-trust-interceptor.md)):
 
 ```bash
