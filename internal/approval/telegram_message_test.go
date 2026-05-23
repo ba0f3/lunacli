@@ -21,8 +21,8 @@ func TestFormatTelegramPendingMessage_HTML(t *testing.T) {
 	if !strings.Contains(text, "<pre>echo 'a' &gt; /tmp &amp; test</pre>") {
 		t.Fatalf("command not escaped in pre: %s", text)
 	}
-	if strings.Contains(text, "ubuntu@10.9.5.51</code>") && strings.Contains(text, "<code>ubuntu@10.9.5.51</code>") {
-		// host in code block avoids spurious link styling
+	if !strings.Contains(text, "<code>ubuntu@10.9.5.51</code>") {
+		t.Fatalf("host should appear in code block, got: %s", text)
 	}
 }
 

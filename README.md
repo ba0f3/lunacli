@@ -53,6 +53,14 @@ make build
 
 ### 2. Configure
 
+Or run interactive setup:
+
+```bash
+./bin/luna onboard
+```
+
+This writes `luna.config.json`, `luna.d/policy.yml`, skeleton `hosts.yml`, and configures Telegram.
+
 Create a policy file (required) in `./luna.d/policy.yml`:
 
 ```yaml
