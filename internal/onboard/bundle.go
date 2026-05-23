@@ -22,6 +22,9 @@ func ExtractBundle(bundle []byte, destDir string) error {
 	}
 	for name, data := range entries {
 		dest := filepath.Join(destDir, name)
+		if !isWithinBaseDir(destDir, dest) {
+			return fmt.Errorf("invalid output path: %q", name)
+		}
 		if err := os.WriteFile(dest, data, 0644); err != nil {
 			return err
 		}
@@ -59,6 +62,22 @@ func BundleEntries(bundle []byte) (map[string][]byte, error) {
 		}
 		out[hdr.Name] = data
 	}
+}
+
+func isWithinBaseDir(baseDir, targetPath string) bool {
+	baseAbs, err := filepath.Abs(baseDir)
+	if err != nil {
+		return false
+	}
+	targetAbs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func validateTarName(name string) error {

@@ -2,8 +2,10 @@ package onboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ba0f3/lunacli/internal/config"
 )
@@ -39,6 +41,22 @@ func WriteConfigJSON(path string, mode WriteMode, fs config.FileSettings) (bool,
 	return WriteFile(mode, path, data, 0644)
 }
 
+func isWithinBaseDir(baseDir, targetPath string) bool {
+	baseAbs, err := filepath.Abs(baseDir)
+	if err != nil {
+		return false
+	}
+	targetAbs, err := filepath.Abs(targetPath)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // InstallBundle writes embedded policy files into layout.PolicyDir honoring write mode.
 func InstallBundle(mode WriteMode, ly Layout) (map[string]bool, error) {
 	entries, err := BundleEntries(embeddedBundle)
@@ -51,6 +69,9 @@ func InstallBundle(mode WriteMode, ly Layout) (map[string]bool, error) {
 	written := make(map[string]bool)
 	for name, data := range entries {
 		path := filepath.Join(ly.PolicyDir, name)
+		if !isWithinBaseDir(ly.PolicyDir, path) {
+			return nil, fmt.Errorf("invalid bundle output path: %q", name)
+		}
 		ok, err := WriteFile(mode, path, data, 0644)
 		if err != nil {
 			return nil, err
