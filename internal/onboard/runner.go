@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ba0f3/lunacli/internal/config"
+	"golang.org/x/term"
 )
 
 // Run executes the interactive onboard wizard.
@@ -186,13 +187,6 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 	return nil
 }
 
-func isTerminal(r io.Reader) bool {
-	if f, ok := r.(*os.File); ok {
-		fi, err := f.Stat()
-		if err != nil {
-			return false
-		}
-		return (fi.Mode() & os.ModeCharDevice) != 0
-	}
-	return false
+func stdinIsTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
