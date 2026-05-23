@@ -15,7 +15,7 @@ import (
 
 // Run executes the interactive onboard wizard.
 func Run(in io.Reader, out, errOut io.Writer) error {
-	if !isTerminal(in) {
+	if !term.IsTerminal(int(in.(*os.File).Fd())) {
 		return fmt.Errorf("onboard requires an interactive terminal")
 	}
 
