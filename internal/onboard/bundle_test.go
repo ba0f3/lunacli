@@ -9,26 +9,58 @@ import (
 	"testing"
 )
 
-func TestExtractBundle_safeAndWritesFiles(t *testing.T) {
-	dir := t.TempDir()
-	if err := ExtractBundle(embeddedBundle, dir); err != nil {
-		t.Fatal(err)
+func TestExtractBundle(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupBundle   func(t *testing.T) []byte
+		expectError   bool
+		errorContains string
+		checkFiles    []string
+	}{
+		{
+			name: "safeAndWritesFiles",
+			setupBundle: func(t *testing.T) []byte {
+				return embeddedBundle
+			},
+			expectError: false,
+			checkFiles:  []string{"policy.yml", "hosts.yml"},
+		},
+		{
+			name: "rejectsTraversal",
+			setupBundle: func(t *testing.T) []byte {
+				bad, err := tarGzBytes([]tarEntry{{Name: "../evil", Data: []byte("x")}})
+				if err != nil {
+					t.Fatalf("setup tarGzBytes: %v", err)
+				}
+				return bad
+			},
+			expectError:   true,
+			errorContains: "path traversal",
+		},
 	}
-	for _, name := range []string{"policy.yml", "hosts.yml"} {
-		p := filepath.Join(dir, name)
-		if _, err := os.Stat(p); err != nil {
-			t.Fatalf("stat %s: %v", name, err)
-		}
-	}
-}
 
-func TestExtractBundle_rejectsTraversal(t *testing.T) {
-	bad, err := tarGzBytes([]tarEntry{{Name: "../evil", Data: []byte("x")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ExtractBundle(bad, t.TempDir()); err == nil {
-		t.Fatal("expected error for path traversal")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			bundle := tc.setupBundle(t)
+			err := ExtractBundle(bundle, dir)
+
+			if tc.expectError {
+				if err == nil {
+					t.Fatalf("expected error for path traversal")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				for _, name := range tc.checkFiles {
+					p := filepath.Join(dir, name)
+					if _, err := os.Stat(p); err != nil {
+						t.Fatalf("stat %s: %v", name, err)
+					}
+				}
+			}
+		})
 	}
 }
 

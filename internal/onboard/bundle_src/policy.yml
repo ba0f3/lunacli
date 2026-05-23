@@ -44,7 +44,7 @@ rules:
       - binary: ip
         args_prefix: ["route"]
 
-  # Log and file inspection (read-only use of sed/awk without -i)
+  # Log and file inspection (read-only tools only)
   - action: allow
     hosts: ["*"]
     tags: ["*"]
@@ -55,14 +55,11 @@ rules:
       - binary: tail
       - binary: less
       - binary: grep
-      - binary: awk
-      - binary: sed
       - binary: sort
       - binary: uniq
       - binary: wc
       - binary: cut
       - binary: diff
-      - binary: find
 
   # Service status (read-only systemctl subcommands)
   - action: allow

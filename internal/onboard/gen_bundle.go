@@ -19,12 +19,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "create %s: %v\n", out, err)
 		os.Exit(1)
 	}
-	defer f.Close()
 
 	gw := gzip.NewWriter(f)
-	defer gw.Close()
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
 
 	entries := []string{"policy.yml", "hosts.yml"}
 	for _, name := range entries {
@@ -47,5 +44,19 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	if err := tw.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "close tar writer: %v\n", err)
+		os.Exit(1)
+	}
+	if err := gw.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "close gzip writer: %v\n", err)
+		os.Exit(1)
+	}
+	if err := f.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "close file: %v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Fprintf(os.Stderr, "wrote %s\n", out)
 }

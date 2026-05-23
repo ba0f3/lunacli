@@ -26,7 +26,7 @@ func NewLayout(target Target) (Layout, error) {
 	case TargetUserWide:
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return Layout{}, err
+			return Layout{}, fmt.Errorf("getting user home dir: %w", err)
 		}
 		root := filepath.Join(home, ".config", "luna")
 		return Layout{
@@ -39,7 +39,7 @@ func NewLayout(target Target) (Layout, error) {
 	case TargetProjectLocal:
 		cwd, err := os.Getwd()
 		if err != nil {
-			return Layout{}, err
+			return Layout{}, fmt.Errorf("getting working dir: %w", err)
 		}
 		return Layout{
 			ConfigJSON:   filepath.Join(cwd, "luna.config.json"),

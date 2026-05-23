@@ -21,9 +21,12 @@ func SaveBotToken(path, token string) error {
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	return os.WriteFile(path, []byte(token+"\n"), 0600)
+	if err := os.WriteFile(path, []byte(token+"\n"), 0600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
 }
 
 // DiscoverApprover polls getUpdates for a user message (e.g. /start).
@@ -56,19 +59,31 @@ func DiscoverApprover(ctx context.Context, token string, client *http.Client, ap
 		if err != nil {
 			return "", "", err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+
+		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(raw))
 		if err != nil {
+			cancel()
 			return "", "", err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
+			cancel()
 			return "", "", err
 		}
+
+		if resp.StatusCode != http.StatusOK {
+			cancel()
+			resp.Body.Close()
+			return "", "", fmt.Errorf("telegram getUpdates returned status %d", resp.StatusCode)
+		}
+
 		data, err := io.ReadAll(resp.Body)
 		if closeErr := resp.Body.Close(); err == nil {
 			err = closeErr
 		}
+		cancel()
 		if err != nil {
 			return "", "", err
 		}

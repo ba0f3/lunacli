@@ -18,7 +18,7 @@ func ExtractBundle(bundle []byte, destDir string) error {
 		return err
 	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return err
+		return fmt.Errorf("mkdir %s: %w", destDir, err)
 	}
 	for name, data := range entries {
 		dest := filepath.Join(destDir, name)
@@ -26,7 +26,7 @@ func ExtractBundle(bundle []byte, destDir string) error {
 			return fmt.Errorf("invalid output path: %q", name)
 		}
 		if err := os.WriteFile(dest, data, 0644); err != nil {
-			return err
+			return fmt.Errorf("write file %s: %w", dest, err)
 		}
 	}
 	return nil
@@ -58,7 +58,7 @@ func BundleEntries(bundle []byte) (map[string][]byte, error) {
 		}
 		data, err := io.ReadAll(tr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read tar entry %s: %w", hdr.Name, err)
 		}
 		out[hdr.Name] = data
 	}

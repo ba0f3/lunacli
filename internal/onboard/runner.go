@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ba0f3/lunacli/internal/config"
@@ -13,7 +14,7 @@ import (
 
 // Run executes the interactive onboard wizard.
 func Run(in io.Reader, out, errOut io.Writer) error {
-	if !stdinIsTerminal() {
+	if !isTerminal(in) {
 		return fmt.Errorf("onboard requires an interactive terminal")
 	}
 
@@ -139,6 +140,9 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 		if approverID == "" {
 			return fmt.Errorf("approver user id required")
 		}
+		if _, err := strconv.ParseInt(approverID, 10, 64); err != nil {
+			return fmt.Errorf("approver user id must be numeric")
+		}
 		chatID = approverID
 	}
 
@@ -146,9 +150,9 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 		ConfigDir: ly.ConfigDirRel,
 		Approval:  config.ApprovalSettings{TTL: "10m"},
 		Telegram: config.TelegramSettings{
-			BotTokenFile:     ly.TokenFile,
+			BotTokenFile:   ly.TokenFile,
 			ApproverUserID: approverID,
-			ChatID:           chatID,
+			ChatID:         chatID,
 		},
 	}
 	if ok, err := WriteConfigJSON(ly.ConfigJSON, mode, fs); err != nil {
@@ -182,10 +186,13 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 	return nil
 }
 
-func stdinIsTerminal() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
+func isTerminal(r io.Reader) bool {
+	if f, ok := r.(*os.File); ok {
+		fi, err := f.Stat()
+		if err != nil {
+			return false
+		}
+		return (fi.Mode() & os.ModeCharDevice) != 0
 	}
-	return (fi.Mode() & os.ModeCharDevice) != 0
+	return false
 }
