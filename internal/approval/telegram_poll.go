@@ -233,7 +233,7 @@ func (tg *TelegramProvider) postTelegram(ctx context.Context, path string, body 
 
 	resp, err := tg.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("telegram API: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram API: %w", err))
 	}
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
 
