@@ -141,6 +141,17 @@ func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramPr
 // Name implements Provider.
 func (tg *TelegramProvider) Name() string { return "telegram" }
 
+func (tg *TelegramProvider) sanitizeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	s := err.Error()
+	if tg.botToken != "" {
+		s = strings.ReplaceAll(s, tg.botToken, "[REDACTED]")
+	}
+	return errors.New(s)
+}
+
 // Notify implements Provider.
 func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest) error {
 	text := formatTelegramPendingMessage(pending, req)
@@ -170,7 +181,7 @@ func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest
 
 	resp, err := tg.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("telegram sendMessage: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: %w", err))
 	}
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
 
