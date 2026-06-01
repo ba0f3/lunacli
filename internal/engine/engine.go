@@ -26,10 +26,24 @@ type Result struct {
 
 type Engine struct {
 	pol *policy.Policy
+	compiledDenyPatterns []*regexp.Regexp
 }
 
 func NewEngine(pol *policy.Policy) *Engine {
-	return &Engine{pol: pol}
+	// ⚡ Bolt Optimization: Pre-compile custom deny patterns once during initialization
+	// to avoid expensive recompilation on every Classify call.
+	var compiledDenyPatterns []*regexp.Regexp
+	if pol != nil {
+		for _, pat := range pol.DenyPatterns {
+			if re, err := regexp.Compile(pat); err == nil {
+				compiledDenyPatterns = append(compiledDenyPatterns, re)
+			}
+		}
+	}
+	return &Engine{
+		pol: pol,
+		compiledDenyPatterns: compiledDenyPatterns,
+	}
 }
 
 func (e *Engine) Classify(command string, host string, tags []string) Result {
@@ -144,9 +158,9 @@ func (e *Engine) Classify(command string, host string, tags []string) Result {
 			}
 
 			if e.pol != nil {
-				for _, pat := range e.pol.DenyPatterns {
-					if matched, _ := regexp.MatchString(pat, cmd); matched {
-						flag(Forbidden, fmt.Sprintf("command matches policy deny pattern: %q", pat))
+				for _, re := range e.compiledDenyPatterns {
+					if re.MatchString(cmd) {
+						flag(Forbidden, fmt.Sprintf("command matches policy deny pattern: %q", re.String()))
 						return false
 					}
 				}
