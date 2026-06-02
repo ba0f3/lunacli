@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	localConfigFile         = "luna.config.json"
-	cwdConfigJSONRelPath    = ".config/luna.config.json"
-	userConfigRelPath       = ".config/luna/config.json"
+	localConfigFile           = "luna.config.json"
+	cwdConfigJSONRelPath      = ".config/luna.config.json"
+	userConfigRelPath         = ".config/luna/config.json"
 	homeLunaConfigJSONRelPath = ".config/luna/luna.config.json"
-	dotEnvFile              = ".env"
+	dotEnvFile                = ".env"
 )
 
 // FileSettings is the JSON configuration schema (all fields optional).
