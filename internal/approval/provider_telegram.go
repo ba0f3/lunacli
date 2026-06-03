@@ -175,7 +175,7 @@ func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest
 	urlStr := tg.apiBase + tg.sendMessagePath
 	httpReq, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("telegram sendMessage: build request: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: build request: %w", err))
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
