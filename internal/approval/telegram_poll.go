@@ -227,7 +227,7 @@ func (tg *TelegramProvider) postTelegram(ctx context.Context, path string, body 
 	urlStr := tg.apiBase + path
 	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, urlStr, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("telegram API: build request: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram API: build request: %w", err))
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
