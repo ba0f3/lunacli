@@ -25,7 +25,7 @@ type Result struct {
 }
 
 type Engine struct {
-	pol *policy.Policy
+	pol                  *policy.Policy
 	compiledDenyPatterns []*regexp.Regexp
 }
 
@@ -41,7 +41,7 @@ func NewEngine(pol *policy.Policy) *Engine {
 		}
 	}
 	return &Engine{
-		pol: pol,
+		pol:                  pol,
 		compiledDenyPatterns: compiledDenyPatterns,
 	}
 }

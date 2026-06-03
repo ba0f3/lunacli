@@ -16,9 +16,9 @@ import (
 const telegramLongPollSec = 30
 
 type telegramGetUpdatesRequest struct {
-	Offset          int64    `json:"offset,omitempty"`
-	Timeout         int      `json:"timeout"`
-	AllowedUpdates  []string `json:"allowed_updates"`
+	Offset         int64    `json:"offset,omitempty"`
+	Timeout        int      `json:"timeout"`
+	AllowedUpdates []string `json:"allowed_updates"`
 }
 
 type telegramUpdatesResponse struct {
@@ -33,10 +33,10 @@ type telegramUpdate struct {
 }
 
 type telegramCallbackQuery struct {
-	ID      string                  `json:"id"`
-	From    telegramUser            `json:"from"`
+	ID      string                   `json:"id"`
+	From    telegramUser             `json:"from"`
 	Message *telegramCallbackMessage `json:"message,omitempty"`
-	Data    string                  `json:"data"`
+	Data    string                   `json:"data"`
 }
 
 type telegramUser struct {
