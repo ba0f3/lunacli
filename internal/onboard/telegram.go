@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,13 +65,13 @@ func DiscoverApprover(ctx context.Context, token string, client *http.Client, ap
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(raw))
 		if err != nil {
 			cancel()
-			return "", "", err
+			return "", "", sanitizeTokenError(err, token)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := client.Do(req)
 		if err != nil {
 			cancel()
-			return "", "", err
+			return "", "", sanitizeTokenError(err, token)
 		}
 
 		if resp.StatusCode != http.StatusOK {
@@ -109,6 +110,17 @@ func DiscoverApprover(ctx context.Context, token string, client *http.Client, ap
 		}
 	}
 	return "", "", fmt.Errorf("no Telegram message received; send /start to your bot and retry")
+}
+
+func sanitizeTokenError(err error, token string) error {
+	if err == nil {
+		return nil
+	}
+	s := err.Error()
+	if token != "" {
+		s = strings.ReplaceAll(s, token, "[REDACTED]")
+	}
+	return errors.New(s)
 }
 
 type telegramUpdatesResponse struct {
