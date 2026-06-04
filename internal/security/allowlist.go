@@ -386,12 +386,35 @@ var databaseClients = map[string]struct{}{
 
 var databaseMutationPattern = regexp.MustCompile(`(?i)\b(?:update|delete\s+from|drop|create)\b`)
 
+type commandPrefix struct {
+	exact  string
+	prefix string
+}
+
+var preparedReadOnlyPrefixes []commandPrefix
+var preparedMutatingPrefixes []commandPrefix
+
 // init sorts prefix lists by length descending so that longer, more-specific
 // prefixes are checked before shorter ones. This prevents "sed " from matching
-// before "sed -i", etc.
+// before "sed -i", etc. It also precomputes trimmed and lowercased variants.
 func init() {
 	sortByLengthDesc(readOnlyPrefixes)
 	sortByLengthDesc(mutatingPrefixes)
+
+	preparedReadOnlyPrefixes = preparePrefixes(readOnlyPrefixes)
+	preparedMutatingPrefixes = preparePrefixes(mutatingPrefixes)
+}
+
+func preparePrefixes(list []string) []commandPrefix {
+	res := make([]commandPrefix, len(list))
+	for i, p := range list {
+		clean := strings.TrimRight(strings.ToLower(p), " \n")
+		res[i] = commandPrefix{
+			exact:  clean,
+			prefix: clean + " ",
+		}
+	}
+	return res
 }
 
 func sortByLengthDesc(list []string) {
@@ -653,10 +676,11 @@ func Classify(command string) CheckResult {
 			}
 
 			// Check mutating prefixes
+			// ⚡ Bolt Optimization: Iterate over precalculated preparedMutatingPrefixes
+			// to avoid calling strings.ToLower and strings.TrimRight repeatedly.
 			matchedMutating := false
-			for _, prefix := range mutatingPrefixes {
-				p := strings.TrimRight(strings.ToLower(prefix), " \n")
-				if lowerCmd == p || strings.HasPrefix(lowerCmd, p+" ") {
+			for _, cp := range preparedMutatingPrefixes {
+				if lowerCmd == cp.exact || strings.HasPrefix(lowerCmd, cp.prefix) {
 					flag(Mutating, "command modifies system state — re-run with allow_mutations=true after user approval")
 					matchedMutating = true
 					break
@@ -667,10 +691,10 @@ func Classify(command string) CheckResult {
 			}
 
 			// Check read-only prefixes
+			// ⚡ Bolt Optimization: Iterate over precalculated preparedReadOnlyPrefixes.
 			matchedReadOnly := false
-			for _, prefix := range readOnlyPrefixes {
-				p := strings.TrimRight(strings.ToLower(prefix), " \n")
-				if lowerCmd == p || strings.HasPrefix(lowerCmd, p+" ") {
+			for _, cp := range preparedReadOnlyPrefixes {
+				if lowerCmd == cp.exact || strings.HasPrefix(lowerCmd, cp.prefix) {
 					matchedReadOnly = true
 					break
 				}
