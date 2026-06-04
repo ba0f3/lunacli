@@ -111,6 +111,9 @@ expired, invalid, or the wait was cancelled.`),
 
 		result, err := pool.Execute(host, command, timeout)
 		if err != nil {
+			if msg := ssh.AccessErrorMessage(err); msg != "" {
+				return mcp.NewToolResultText(msg), nil
+			}
 			return mcp.NewToolResultError(fmt.Sprintf("SSH execution error: %v", err)), nil
 		}
 
