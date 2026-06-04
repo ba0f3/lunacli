@@ -83,7 +83,13 @@ var databaseClients = map[string]struct{}{
 var databaseMutationPattern = regexp.MustCompile(`(?i)\b(?:update|delete\s+from|drop|create)\b`)
 
 func unescape(s string) string {
+	// ⚡ Bolt Optimization: Early return if no backslash is found to avoid string builder allocation.
+	if !strings.ContainsRune(s, '\\') {
+		return s
+	}
+
 	var b strings.Builder
+	b.Grow(len(s)) // ⚡ Bolt Optimization: Pre-allocate capacity to avoid growing the builder.
 	escaping := false
 	for _, ch := range s {
 		if escaping {

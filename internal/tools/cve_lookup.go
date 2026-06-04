@@ -166,8 +166,8 @@ func setMITRECVSSFields(result *CVELookupResult, metrics []mitreCVSSMetric) {
 }
 
 type mitreCVERecord struct {
-	DataType     string `json:"dataType"`
-	CVEMetadata  struct {
+	DataType    string `json:"dataType"`
+	CVEMetadata struct {
 		CVEID         string `json:"cveId"`
 		DatePublished string `json:"datePublished"`
 		DateUpdated   string `json:"dateUpdated"`

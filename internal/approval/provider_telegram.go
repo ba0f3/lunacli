@@ -21,12 +21,12 @@ var ErrTelegramCallbackUnauthorized = errors.New("telegram callback unauthorized
 
 // TelegramProvider sends approval prompts via Telegram Bot API sendMessage with an inline keyboard.
 type TelegramProvider struct {
-	svc             *Service
-	botToken        string
-	approverUserID  string
-	chatID          string
-	apiBase         string
-	httpClient         *http.Client
+	svc                 *Service
+	botToken            string
+	approverUserID      string
+	chatID              string
+	apiBase             string
+	httpClient          *http.Client
 	sendMessagePath     string
 	getUpdatesPath      string
 	answerCallbackPath  string
@@ -125,13 +125,13 @@ func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramPr
 	}
 
 	return &TelegramProvider{
-		svc:                svc,
-		botToken:           token,
-		approverUserID:     approver,
-		chatID:             chat,
-		apiBase:            base,
-		httpClient:         client,
-		sendMessagePath:    sendPath,
+		svc:                 svc,
+		botToken:            token,
+		approverUserID:      approver,
+		chatID:              chat,
+		apiBase:             base,
+		httpClient:          client,
+		sendMessagePath:     sendPath,
 		getUpdatesPath:      fmt.Sprintf(getUpdatesFmt, token),
 		answerCallbackPath:  fmt.Sprintf(answerFmt, token),
 		editMessageTextPath: fmt.Sprintf(editFmt, token),
@@ -175,7 +175,7 @@ func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest
 	urlStr := tg.apiBase + tg.sendMessagePath
 	httpReq, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("telegram sendMessage: build request: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: build request: %w", err))
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 

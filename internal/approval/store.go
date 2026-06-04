@@ -12,22 +12,22 @@ var ErrNotFound = errors.New("approval not found")
 type Status string
 
 type Record struct {
-	ID               string
-	Tool             string
-	Host             string
-	RedactedCommand  string
-	NormalizedBody   []byte
-	Classification   string
-	Reason           string
-	Fingerprint      string
-	Status           Status
-	CreatedAt        time.Time
-	ExpiresAt        time.Time
-	DecidedAt        *time.Time
-	Approver            string
-	RedactionVersion    string
-	TelegramChatID      int64
-	TelegramMessageID   int64
+	ID                string
+	Tool              string
+	Host              string
+	RedactedCommand   string
+	NormalizedBody    []byte
+	Classification    string
+	Reason            string
+	Fingerprint       string
+	Status            Status
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	DecidedAt         *time.Time
+	Approver          string
+	RedactionVersion  string
+	TelegramChatID    int64
+	TelegramMessageID int64
 }
 
 type AuditEvent struct {

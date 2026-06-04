@@ -403,7 +403,13 @@ func sortByLengthDesc(list []string) {
 // unescape removes backslash escapes from a string (e.g. "s\\udo" -> "sudo")
 // to prevent attackers from bypassing the allowlist by escaping characters.
 func unescape(s string) string {
+	// ⚡ Bolt Optimization: Early return if no backslash is found to avoid string builder allocation.
+	if !strings.ContainsRune(s, '\\') {
+		return s
+	}
+
 	var b strings.Builder
+	b.Grow(len(s)) // ⚡ Bolt Optimization: Pre-allocate capacity to avoid growing the builder.
 	escaping := false
 	for _, ch := range s {
 		if escaping {
