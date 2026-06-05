@@ -391,28 +391,39 @@ type commandPrefix struct {
 	prefix string
 }
 
-var preparedReadOnlyPrefixes []commandPrefix
-var preparedMutatingPrefixes []commandPrefix
+var preparedReadOnlyPrefixesMap map[string][]commandPrefix
+var preparedMutatingPrefixesMap map[string][]commandPrefix
 
 // init sorts prefix lists by length descending so that longer, more-specific
 // prefixes are checked before shorter ones. This prevents "sed " from matching
-// before "sed -i", etc. It also precomputes trimmed and lowercased variants.
+// before "sed -i", etc. It also precomputes trimmed and lowercased variants
+// and groups them by the first word to allow O(1) lookups in Classify.
 func init() {
 	sortByLengthDesc(readOnlyPrefixes)
 	sortByLengthDesc(mutatingPrefixes)
 
-	preparedReadOnlyPrefixes = preparePrefixes(readOnlyPrefixes)
-	preparedMutatingPrefixes = preparePrefixes(mutatingPrefixes)
+	preparedReadOnlyPrefixesMap = preparePrefixes(readOnlyPrefixes)
+	preparedMutatingPrefixesMap = preparePrefixes(mutatingPrefixes)
 }
 
-func preparePrefixes(list []string) []commandPrefix {
-	res := make([]commandPrefix, len(list))
-	for i, p := range list {
+func preparePrefixes(list []string) map[string][]commandPrefix {
+	// ⚡ Bolt Optimization: Build a map indexed by the first word of the command
+	// to avoid O(N) linear scanning of all prefixes during Classify.
+	res := make(map[string][]commandPrefix)
+	for _, p := range list {
 		clean := strings.TrimRight(strings.ToLower(p), " \n")
-		res[i] = commandPrefix{
+		cp := commandPrefix{
 			exact:  clean,
 			prefix: clean + " ",
 		}
+
+		idx := strings.IndexByte(clean, ' ')
+		firstWord := clean
+		if idx >= 0 {
+			firstWord = clean[:idx]
+		}
+
+		res[firstWord] = append(res[firstWord], cp)
 	}
 	return res
 }
@@ -675,15 +686,24 @@ func Classify(command string) CheckResult {
 				return true
 			}
 
+			// Extract the first word of the lowercased command to perform fast O(1) map lookups.
+			idx := strings.IndexByte(lowerCmd, ' ')
+			firstWord := lowerCmd
+			if idx >= 0 {
+				firstWord = lowerCmd[:idx]
+			}
+
 			// Check mutating prefixes
-			// ⚡ Bolt Optimization: Iterate over precalculated preparedMutatingPrefixes
-			// to avoid calling strings.ToLower and strings.TrimRight repeatedly.
+			// ⚡ Bolt Optimization: Look up prefixes by the first word of the command
+			// to reduce O(N) iteration over all mutating prefixes to O(1) + minor iteration.
 			matchedMutating := false
-			for _, cp := range preparedMutatingPrefixes {
-				if lowerCmd == cp.exact || strings.HasPrefix(lowerCmd, cp.prefix) {
-					flag(Mutating, "command modifies system state — re-run with allow_mutations=true after user approval")
-					matchedMutating = true
-					break
+			if cps, ok := preparedMutatingPrefixesMap[firstWord]; ok {
+				for _, cp := range cps {
+					if lowerCmd == cp.exact || strings.HasPrefix(lowerCmd, cp.prefix) {
+						flag(Mutating, "command modifies system state — re-run with allow_mutations=true after user approval")
+						matchedMutating = true
+						break
+					}
 				}
 			}
 			if matchedMutating {
@@ -691,12 +711,14 @@ func Classify(command string) CheckResult {
 			}
 
 			// Check read-only prefixes
-			// ⚡ Bolt Optimization: Iterate over precalculated preparedReadOnlyPrefixes.
+			// ⚡ Bolt Optimization: Same map lookup optimization for read-only prefixes.
 			matchedReadOnly := false
-			for _, cp := range preparedReadOnlyPrefixes {
-				if lowerCmd == cp.exact || strings.HasPrefix(lowerCmd, cp.prefix) {
-					matchedReadOnly = true
-					break
+			if cps, ok := preparedReadOnlyPrefixesMap[firstWord]; ok {
+				for _, cp := range cps {
+					if lowerCmd == cp.exact || strings.HasPrefix(lowerCmd, cp.prefix) {
+						matchedReadOnly = true
+						break
+					}
 				}
 			}
 
