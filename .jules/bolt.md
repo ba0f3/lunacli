@@ -9,3 +9,6 @@
 ## 2026-06-03 - Prevent strings manipulation inside prefix matching loops
 **Learning:** Re-evaluating `strings.ToLower` and `strings.TrimRight` repeatedly inside a hot loop traversing static string maps (like allowlist prefixes evaluation for shell commands) introduces a significant runtime overhead due to unnecessary allocations per item.
 **Action:** Precalculate cleaned/normalized structure forms (e.g. `commandPrefix` with exact vs prefix variations) during package initialization (`init`) to iterate fast over pre-computed comparisons using `==` and `strings.HasPrefix`.
+## 2026-06-05 - Prevent linear scanning of allowlist prefixes
+**Learning:** A linear scan over dozens of static command prefixes inside `Classify` creates unnecessary overhead. Because prefix matches naturally share the same first word as the matched command, we can safely group prefixes by their first word.
+**Action:** Store and query prefix allowlists using a `map[string][]commandPrefix` keyed by the first word of the prefix, enabling fast O(1) bucketing before performing localized iterations.
