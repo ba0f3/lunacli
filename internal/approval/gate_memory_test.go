@@ -41,8 +41,11 @@ func TestGate_MemoryStore_MutatingApproveAndExecute(t *testing.T) {
 		t.Fatalf("second Kind = %v, want execute", res2.Kind)
 	}
 
-	res3 := gate.CheckExecuteRemote(engine.Result{Class: engine.Mutating, Reason: "mutating"}, host, cmd, timeout, res.ApprovalID)
-	if res3.Kind != GatePermissionRequired {
-		t.Fatalf("third Kind = %v, want permission required (consumed)", res3.Kind)
+	res3 := gate.CheckExecuteRemote(engine.Result{Class: engine.Mutating, Reason: "mutating"}, host, cmd, timeout, "")
+	if res3.Kind != GateExecute {
+		t.Fatalf("third Kind = %v, want execute via session grant", res3.Kind)
+	}
+	if !res3.SessionGrant {
+		t.Fatal("expected SessionGrant after consume")
 	}
 }

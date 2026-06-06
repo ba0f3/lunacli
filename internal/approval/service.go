@@ -36,6 +36,7 @@ type Service struct {
 	cfg        Config
 	now        func() time.Time
 	bindingKey []byte
+	grants     *sessionGrants
 }
 
 // NewService returns an approval service using cfg.TTL for pending expiry.
@@ -50,7 +51,29 @@ func NewService(store Store, cfg Config) *Service {
 		cfg:        cfg,
 		now:        time.Now,
 		bindingKey: bindingKey,
+		grants:     newSessionGrants(),
 	}
+}
+
+// RememberSessionGrant records an approved execute_remote for in-process reuse
+// until the approval TTL elapses. Grants match the exact host+command and the
+// same command on any host (fleet diagnostics).
+func (s *Service) RememberSessionGrant(req ExecuteRemoteRequest) {
+	if s == nil || s.grants == nil || s.cfg.TTL <= 0 {
+		return
+	}
+	expires := s.now().UTC().Add(s.cfg.TTL)
+	s.grants.remember(s.exactBinding(req), commandGrantKey(s, req), expires)
+}
+
+// HasSessionGrant reports whether req was approved earlier in this process and
+// the grant has not expired.
+func (s *Service) HasSessionGrant(req ExecuteRemoteRequest) bool {
+	if s == nil || s.grants == nil {
+		return false
+	}
+	now := s.now().UTC()
+	return s.grants.allowed(s.exactBinding(req), commandGrantKey(s, req), now)
 }
 
 // CreatePending inserts a pending approval and records request_created audit.

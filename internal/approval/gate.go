@@ -26,6 +26,7 @@ type GateResult struct {
 	ExpiresAt         time.Time
 	FingerprintPrefix string
 	NotifyErr         error // set when a provider Notify fails (first error only)
+	SessionGrant      bool  // true when a prior in-process approval covers this call
 }
 
 // Gate applies out-of-band approval policy on top of command classification.
@@ -78,7 +79,12 @@ func (g *Gate) CheckExecuteRemote(check engine.Result, host, command string, tim
 				ApprovalID:     approvalID,
 			}
 		}
+		g.svc.RememberSessionGrant(req)
 		return GateResult{Kind: GateExecute}
+	}
+
+	if g.svc.HasSessionGrant(req) {
+		return GateResult{Kind: GateExecute, SessionGrant: true}
 	}
 
 	pending, err := g.svc.CreatePending(executeRemoteToolName, req, body, fp, string(check.Class), check.Reason)

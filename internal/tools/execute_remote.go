@@ -21,7 +21,8 @@ func registerExecuteRemote(s *server.MCPServer, pool *ssh.Pool, eng *engine.Engi
 
 READ-ONLY BY DEFAULT: Commands that modify system state require out-of-band human
 approval via Telegram (or configured provider). The tool blocks until the human
-approves or denies, or the approval expires.
+approves or denies, or the approval expires. After approval, the same command is
+remembered for the rest of the luna serve process (and on any host) until approval.ttl.
 
 Optional approval_id: supply a UUID from a prior interrupted call to resume
 waiting on the same pending approval (same host, command, timeout_sec).
@@ -108,7 +109,11 @@ expired, invalid, or the wait was cancelled.`),
 			return mcp.NewToolResultText(gateRes.PermissionText), nil
 		case approval.GateExecute:
 			if check.Class == engine.Mutating {
-				log.Printf("MUTATING APPROVED host=%s cmd=%q", host, logCommand)
+				if gateRes.SessionGrant {
+					log.Printf("MUTATING session grant host=%s cmd=%q", host, logCommand)
+				} else {
+					log.Printf("MUTATING APPROVED host=%s cmd=%q", host, logCommand)
+				}
 			}
 		default:
 			return mcp.NewToolResultError("internal error: unknown gate result"), nil
