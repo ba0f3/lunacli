@@ -42,7 +42,7 @@ expired, invalid, or the wait was cancelled.`),
 			mcp.Description("Execution timeout in seconds (default: 30, max: 300)"),
 		),
 		mcp.WithString("approval_id",
-			mcp.Description("UUID from a prior PERMISSION_REQUIRED response; must match the same host, command (after redaction), and timeout_sec"),
+			mcp.Description("UUID from a prior PERMISSION_REQUIRED response; must exactly match the same host, command, and timeout_sec"),
 		),
 	)
 
@@ -55,6 +55,10 @@ expired, invalid, or the wait was cancelled.`),
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
+		canonicalHost, err := pool.CanonicalTarget(host)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("resolve SSH target: %v", err)), nil
+		}
 
 		timeoutSec := req.GetFloat("timeout_sec", 30)
 		if timeoutSec <= 0 || timeoutSec > 300 {
@@ -63,22 +67,23 @@ expired, invalid, or the wait was cancelled.`),
 		timeout := time.Duration(timeoutSec) * time.Second
 
 		approvalID := strings.TrimSpace(req.GetString("approval_id", ""))
+		logCommand := approval.RedactSecrets(command)
 
-		check := eng.Classify(command, host, nil)
+		check := eng.ClassifyTargets(command, []string{host, canonicalHost}, nil)
 		log.Printf("execute_remote host=%s class=%s approval_id=%q cmd=%q",
-			host, check.Class, approvalID, command)
+			canonicalHost, check.Class, approvalID, logCommand)
 
-		gateRes := gate.CheckExecuteRemote(check, host, command, timeoutSec, approvalID)
+		gateRes := gate.CheckExecuteRemote(check, canonicalHost, command, timeoutSec, approvalID)
 		switch gateRes.Kind {
 		case approval.GateBlocked:
-			log.Printf("BLOCKED host=%s cmd=%q reason=%s", host, command, check.Reason)
+			log.Printf("BLOCKED host=%s cmd=%q reason=%s", host, logCommand, check.Reason)
 			return mcp.NewToolResultText(fmt.Sprintf(
 				"%s\n\nCommand: %q\n\nThis command is permanently forbidden and cannot be executed.",
 				gateRes.BlockedText, command,
 			)), nil
 		case approval.GatePermissionRequired:
 			if gateRes.ApprovalID != "" && approvalID == "" {
-				log.Printf("waiting for approval %s host=%s cmd=%q", gateRes.ApprovalID, host, command)
+				log.Printf("waiting for approval %s host=%s cmd=%q", gateRes.ApprovalID, host, logCommand)
 				waitCtx := ctx
 				if deadline, ok := ctx.Deadline(); !ok || gateRes.ExpiresAt.Before(deadline) {
 					var cancel context.CancelFunc
@@ -89,27 +94,27 @@ expired, invalid, or the wait was cancelled.`),
 					log.Printf("approval wait ended host=%s id=%s err=%v", host, gateRes.ApprovalID, waitErr)
 					return mcp.NewToolResultText(formatApprovalWaitError(waitErr, gateRes)), nil
 				}
-				gateRes = gate.CheckExecuteRemote(check, host, command, timeoutSec, gateRes.ApprovalID)
+				gateRes = gate.CheckExecuteRemote(check, canonicalHost, command, timeoutSec, gateRes.ApprovalID)
 				if gateRes.Kind != approval.GateExecute {
-					log.Printf("PERMISSION_REQUIRED after wait host=%s cmd=%q", host, command)
+					log.Printf("PERMISSION_REQUIRED after wait host=%s cmd=%q", host, logCommand)
 					return mcp.NewToolResultText(gateRes.PermissionText), nil
 				}
 				if check.Class == engine.Mutating {
-					log.Printf("MUTATING APPROVED host=%s cmd=%q", host, command)
+					log.Printf("MUTATING APPROVED host=%s cmd=%q", host, logCommand)
 				}
 				break
 			}
-			log.Printf("PERMISSION_REQUIRED host=%s cmd=%q", host, command)
+			log.Printf("PERMISSION_REQUIRED host=%s cmd=%q", host, logCommand)
 			return mcp.NewToolResultText(gateRes.PermissionText), nil
 		case approval.GateExecute:
 			if check.Class == engine.Mutating {
-				log.Printf("MUTATING APPROVED host=%s cmd=%q", host, command)
+				log.Printf("MUTATING APPROVED host=%s cmd=%q", host, logCommand)
 			}
 		default:
 			return mcp.NewToolResultError("internal error: unknown gate result"), nil
 		}
 
-		result, err := pool.Execute(host, command, timeout)
+		result, err := pool.ExecuteBound(host, canonicalHost, command, timeout)
 		if err != nil {
 			if msg := ssh.AccessErrorMessage(err); msg != "" {
 				return mcp.NewToolResultText(msg), nil

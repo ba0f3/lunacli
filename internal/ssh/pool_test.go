@@ -23,14 +23,14 @@ func (r *recordingAuth) SignersFor(ctx context.Context, t Target) ([]gossh.Signe
 func TestSignersFor_UsesAuthProvider(t *testing.T) {
 	rec := &recordingAuth{}
 	p := &Pool{clients: make(map[string]*gossh.Client), auth: rec}
-	_, err := p.signersFor(context.Background(), "alice@example.com:2222")
+	_, err := p.signersFor(context.Background(), "alice@127.0.0.1:2222")
 	if err != nil {
 		t.Fatalf("signersFor: %v", err)
 	}
 	if len(rec.calls) != 1 {
 		t.Fatalf("calls = %d, want 1", len(rec.calls))
 	}
-	if rec.calls[0].User != "alice" || rec.calls[0].Host != "example.com" || rec.calls[0].Port != "2222" {
+	if rec.calls[0].User != "alice" || rec.calls[0].Host != "127.0.0.1" || rec.calls[0].Port != "2222" {
 		t.Fatalf("target = %+v", rec.calls[0])
 	}
 }

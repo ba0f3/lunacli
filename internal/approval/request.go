@@ -21,6 +21,7 @@ type ExecuteRemoteRequest struct {
 	Host       string  `json:"host"`
 	Command    string  `json:"command"`
 	TimeoutSec float64 `json:"timeout_sec"`
+	rawCommand string
 }
 
 // CanonicalJSON marshals v to compact JSON for stable fingerprinting.
@@ -35,6 +36,7 @@ func BuildExecuteRemoteRequest(host, command string, timeoutSec float64) (Execut
 		Host:       host,
 		Command:    RedactSecrets(command),
 		TimeoutSec: timeoutSec,
+		rawCommand: command,
 	}
 	body, err := CanonicalJSON(req)
 	if err != nil {

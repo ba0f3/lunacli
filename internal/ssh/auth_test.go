@@ -34,8 +34,10 @@ func TestDirectAuth_SignersFor_EmptyHost(t *testing.T) {
 }
 
 type fakeProxyClient struct {
-	err  error
-	mode string
+	err              error
+	mode             string
+	signatureRequest sdk.SignatureRequest
+	lastSignData     []byte
 }
 
 func (f *fakeProxyClient) RequestCertificate(ctx context.Context, req sdk.CertRequest) (*gossh.Certificate, ed25519.PrivateKey, error) {
@@ -46,8 +48,8 @@ func (f *fakeProxyClient) RequestCertificate(ctx context.Context, req sdk.CertRe
 
 func (f *fakeProxyClient) RequestSignature(ctx context.Context, req sdk.SignatureRequest, signData []byte) (*gossh.Signature, error) {
 	_ = ctx
-	_ = req
-	_ = signData
+	f.signatureRequest = req
+	f.lastSignData = append([]byte(nil), signData...)
 	return nil, f.err
 }
 

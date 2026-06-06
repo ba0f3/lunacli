@@ -26,6 +26,11 @@ rules:
       - binary: w
       - binary: who
       - binary: last
+      - binary: echo
+      - binary: printf
+      - binary: pwd
+      - binary: "true"
+      - binary: "false"
       - binary: df
         args_prefix: ["-h"]
       - binary: free

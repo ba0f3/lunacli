@@ -4,6 +4,7 @@ package ssh
 type Target struct {
 	User, Host, Port string
 	Raw              string
+	Alias            string
 }
 
 // TargetFromString parses user@host:port using the same rules as the connection pool.

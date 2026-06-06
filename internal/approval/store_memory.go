@@ -69,12 +69,18 @@ func (m *MemoryStore) UpdateStatus(id string, status Status, approver string, de
 	return nil
 }
 
-func (m *MemoryStore) MarkConsumed(id string, _ time.Time) error {
+func (m *MemoryStore) ConsumeApproved(id string, _ time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.records[id]
 	if !ok {
 		return ErrNotFound
+	}
+	if r.Status == StatusConsumed {
+		return ErrConsumed
+	}
+	if r.Status != StatusApproved {
+		return ErrMismatch
 	}
 	r.Status = StatusConsumed
 	m.records[id] = r

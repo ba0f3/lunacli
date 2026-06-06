@@ -70,7 +70,7 @@ func TestResolveSSHConfigHost(t *testing.T) {
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cfg := "Host alias\n  HostName 10.0.0.5\n  Port 2222\n"
+	cfg := "Host alias\n  HostName 10.0.0.5\n  Port 2222\n  HostKeyAlias stable-host-key\n"
 	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +79,33 @@ func TestResolveSSHConfigHost(t *testing.T) {
 	if host != "10.0.0.5" || port != "2222" {
 		t.Fatalf("resolveSSHConfigHost() = %q:%q, want 10.0.0.5:2222", host, port)
 	}
+	if got := resolveSSHConfigHostKeyAlias("alias", host); got != "stable-host-key" {
+		t.Fatalf("resolveSSHConfigHostKeyAlias() = %q, want stable-host-key", got)
+	}
 	host, port = resolveSSHConfigHost("alias", "8022")
 	if host != "10.0.0.5" || port != "8022" {
 		t.Fatalf("explicit port: got %q:%q, want 10.0.0.5:8022", host, port)
+	}
+}
+
+func TestCanonicalTarget_UsesResolvedSSHConfigDestination(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "Host alias\n  HostName 127.0.0.1\n  Port 2222\n  User alice\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := canonicalTarget("alias")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.User != "alice" || got.Host != "127.0.0.1" || got.Port != "2222" || got.Raw != "alice@127.0.0.1:2222" || got.Alias != "alias" {
+		t.Fatalf("canonicalTarget() = %+v", got)
 	}
 }
 

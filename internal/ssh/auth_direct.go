@@ -14,7 +14,11 @@ type directAuth struct{}
 
 func (d *directAuth) SignersFor(ctx context.Context, t Target) ([]gossh.Signer, error) {
 	_ = ctx
-	return collectAuthSigners(t.Host)
+	host := t.Alias
+	if host == "" {
+		host = t.Host
+	}
+	return collectAuthSigners(host)
 }
 
 // collectAuthSigners returns distinct signers for host. Order matters: ssh-agent

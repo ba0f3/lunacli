@@ -139,6 +139,9 @@ func proxyClientInfo(t Target) sdk.ClientInfo {
 }
 
 func (p *proxyAuth) signersLocalCA(ctx context.Context, t Target, targetIP string, client sdk.ClientInfo) ([]gossh.Signer, error) {
+	// The current proxy SDK has no target-port field. Lunacli still binds and
+	// dials the exact approved port locally; proxy-side port policy requires an
+	// upstream SDK/proxy contract extension.
 	cert, priv, err := p.client.RequestCertificate(ctx, sdk.CertRequest{
 		TargetUser: t.User,
 		TargetIP:   targetIP,
@@ -167,6 +170,7 @@ func (p *proxyAuth) signersLocalKey(ctx context.Context, t Target, targetIP stri
 		TargetUser:         t.User,
 		TargetIP:           targetIP,
 		HostKeyFingerprint: fp,
+		SignatureFormat:    pub.Type(),
 		Client:             client,
 	}
 	return []gossh.Signer{&hostedKeySigner{
@@ -238,19 +242,35 @@ func sshPublicKeyFingerprint(pub gossh.PublicKey) string {
 }
 
 type hostedKeySigner struct {
-	pub    gossh.PublicKey
-	client proxySignerClient
-	req    sdk.SignatureRequest
+	pub     gossh.PublicKey
+	client  proxySignerClient
+	req     sdk.SignatureRequest
+	mu      sync.RWMutex
+	hostKey []byte
 }
 
 func (s *hostedKeySigner) PublicKey() gossh.PublicKey {
 	return s.pub
 }
 
+func (s *hostedKeySigner) setDestinationHostKey(key gossh.PublicKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hostKey = append(s.hostKey[:0], key.Marshal()...)
+}
+
 func (s *hostedKeySigner) Sign(_ io.Reader, data []byte) (*gossh.Signature, error) {
+	s.mu.RLock()
+	hostKey := append([]byte(nil), s.hostKey...)
+	s.mu.RUnlock()
+	if len(hostKey) == 0 {
+		return nil, fmt.Errorf("destination host key was not validated before proxy signing")
+	}
+	req := s.req
+	req.DestinationHostPublicKey = hostKey
 	ctx, cancel := context.WithTimeout(context.Background(), proxySignTimeout)
 	defer cancel()
-	sig, err := s.client.RequestSignature(ctx, s.req, data)
+	sig, err := s.client.RequestSignature(ctx, req, data)
 	if err != nil {
 		return nil, mapSDKAccessError(err, Target{
 			User: s.req.TargetUser,
@@ -258,7 +278,8 @@ func (s *hostedKeySigner) Sign(_ io.Reader, data []byte) (*gossh.Signature, erro
 			Port: "22",
 		})
 	}
-	return sig, nil
+	// SDK tags Format with the ephemeral PoP key; SSH auth must use the hosted key type.
+	return &gossh.Signature{Format: s.pub.Type(), Blob: sig.Blob}, nil
 }
 
 func resolveTargetIP(host, port string) (string, error) {
@@ -286,7 +307,8 @@ func mapSDKAccessError(err error, t Target) error {
 	if err == nil {
 		return nil
 	}
-	msg := strings.ToLower(err.Error())
+	orig := err.Error()
+	msg := strings.ToLower(orig)
 	switch {
 	case strings.Contains(msg, "context deadline exceeded"),
 		strings.Contains(msg, "timeout"),
@@ -295,14 +317,32 @@ func mapSDKAccessError(err error, t Target) error {
 		return fmt.Errorf("%s", FormatAccessError(t, ErrAccessRequired))
 	case strings.Contains(msg, "expired"):
 		return fmt.Errorf("%s", FormatAccessError(t, ErrAccessExpired))
+	case strings.Contains(msg, "invalid ssh session binding"):
+		return fmt.Errorf("%s", FormatAccessError(t, proxySignDetailError(orig)))
+	case strings.Contains(msg, "agent_sign_data"):
+		return fmt.Errorf("%s", FormatAccessError(t, fmt.Errorf("proxy requires local-key signing (signer mode mismatch)")))
 	case strings.Contains(msg, "http 403"),
-		strings.Contains(msg, "http 401"),
 		strings.Contains(msg, "denied"),
 		strings.Contains(msg, "rejected"):
 		return fmt.Errorf("%s", FormatAccessError(t, ErrAccessDenied))
-	case strings.Contains(msg, "agent_sign_data"):
-		return fmt.Errorf("%s", FormatAccessError(t, fmt.Errorf("proxy requires local-key signing (signer mode mismatch)")))
+	case strings.Contains(msg, "http 401"):
+		return fmt.Errorf("%s", FormatAccessError(t, proxySignDetailError(orig)))
 	default:
 		return fmt.Errorf("%s", FormatAccessError(t, err))
 	}
+}
+
+// proxySignDetailError extracts the proxy HTTP error body from SDK errors like
+// "POST sign: HTTP 401: invalid SSH session binding: user-auth request mismatch".
+func proxySignDetailError(httpErr string) error {
+	const marker = "invalid SSH session binding"
+	if i := strings.Index(httpErr, marker); i >= 0 {
+		return fmt.Errorf("%s", strings.TrimSpace(httpErr[i:]))
+	}
+	if i := strings.Index(httpErr, "HTTP "); i >= 0 {
+		if j := strings.Index(httpErr[i:], ": "); j >= 0 {
+			return fmt.Errorf("%s", strings.TrimSpace(httpErr[i+j+2:]))
+		}
+	}
+	return fmt.Errorf("%s", strings.TrimSpace(httpErr))
 }

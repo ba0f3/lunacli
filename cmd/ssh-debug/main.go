@@ -84,7 +84,25 @@ func main() {
 		fmt.Printf("Successfully parsed known_hosts.\n")
 	}
 
-	// 3. Setup our debug callback
+	canonical, err := pool.CanonicalTarget(target)
+	if err != nil {
+		log.Fatalf("resolve target: %v", err)
+	}
+	canonicalT := apssh.TargetFromString(canonical)
+	sshUser = canonicalT.User
+	addr := net.JoinHostPort(canonicalT.Host, canonicalT.Port)
+	dialHost, _ := apssh.ResolveSSHConfigHost(host, port)
+	khHost := apssh.KnownHostsHost(host, dialHost)
+	fmt.Printf("canonical target: %s\n", canonical)
+	fmt.Printf("known_hosts lookup host: %q\n", khHost)
+
+	fmt.Printf("\nDialing %s as %q...\n", addr, sshUser)
+
+	signers, authErr := pool.SignersForTarget(context.Background(), target)
+	if authErr != nil {
+		log.Fatalf("SSH auth: %v", authErr)
+	}
+
 	debugCallback := func(hostname string, remote net.Addr, key gossh.PublicKey) error {
 		fmt.Printf("\n[DEBUG] Server presented host key:\n")
 		fmt.Printf("  Type: %s\n", key.Type())
@@ -93,7 +111,8 @@ func main() {
 
 		var khErr error
 		if khCallback != nil {
-			khErr = khCallback(hostname, remote, key)
+			checkAddr := net.JoinHostPort(khHost, canonicalT.Port)
+			khErr = khCallback(checkAddr, remote, key)
 			if khErr != nil {
 				fmt.Printf("\n[DEBUG] knownhosts.New callback result: %v\n", khErr)
 
@@ -110,19 +129,11 @@ func main() {
 				}
 			} else {
 				fmt.Printf("\n[DEBUG] knownhosts.New callback result: OK (Key matched!)\n")
+				apssh.BindDestinationHostKey(signers, key)
 			}
 		}
 
 		return khErr
-	}
-
-	// 4. Dial
-	addr := net.JoinHostPort(host, port)
-	fmt.Printf("\nDialing %s as %q...\n", addr, sshUser)
-
-	signers, authErr := pool.SignersForTarget(context.Background(), target)
-	if authErr != nil {
-		log.Fatalf("SSH auth: %v", authErr)
 	}
 	authMethods, authErr := apssh.AuthMethodsFromSigners(host, signers)
 	if authErr != nil {
@@ -139,7 +150,7 @@ func main() {
 		HostKeyCallback: debugCallback,
 		Timeout:         5 * time.Second,
 	}
-	if preAlgos, scanErr := apssh.HostKeyAlgorithmsForKnownHost(khPath, host, port); scanErr != nil {
+	if preAlgos, scanErr := apssh.HostKeyAlgorithmsForKnownHost(khPath, khHost, canonicalT.Port); scanErr != nil {
 		fmt.Printf("Warning: scan known_hosts for host key algorithms: %v\n", scanErr)
 	} else if len(preAlgos) > 0 {
 		fmt.Printf("HostKeyAlgorithms pinned from known_hosts: %v\n", preAlgos)
@@ -174,7 +185,17 @@ func main() {
 	fmt.Printf("  Restricting HostKeyAlgorithms to: %v\n", knownAlgos)
 
 	config.HostKeyAlgorithms = knownAlgos
-	config.HostKeyCallback = khCallback
+	config.HostKeyCallback = func(hostname string, remote net.Addr, key gossh.PublicKey) error {
+		if khCallback == nil {
+			return nil
+		}
+		checkAddr := net.JoinHostPort(khHost, canonicalT.Port)
+		if err := khCallback(checkAddr, remote, key); err != nil {
+			return err
+		}
+		apssh.BindDestinationHostKey(signers, key)
+		return nil
+	}
 
 	client, err = gossh.Dial("tcp", addr, config)
 	if err != nil {

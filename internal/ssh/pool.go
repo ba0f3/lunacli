@@ -122,13 +122,26 @@ func NewPool(cfg *config.Settings) (*Pool, error) {
 }
 
 func (p *Pool) signersFor(ctx context.Context, target string) ([]gossh.Signer, error) {
-	t := TargetFromString(target)
+	t, err := canonicalTarget(target)
+	if err != nil {
+		return nil, err
+	}
 	return p.auth.SignersFor(ctx, t)
 }
 
 // SignersForTarget returns SSH signers for target (used by ssh-debug).
 func (p *Pool) SignersForTarget(ctx context.Context, target string) ([]gossh.Signer, error) {
 	return p.signersFor(ctx, target)
+}
+
+// CanonicalTarget resolves SSH config aliases and DNS to the exact user, IP, and
+// port used for proxy authorization and dialing.
+func (p *Pool) CanonicalTarget(target string) (string, error) {
+	resolved, err := canonicalTarget(target)
+	if err != nil {
+		return "", err
+	}
+	return resolved.Raw, nil
 }
 
 // parseTarget splits a target string like user@host:port into its components.
@@ -176,15 +189,25 @@ func DialTarget(target string) (username, host, port string) {
 
 // Execute runs command on the named target and returns the result.
 func (p *Pool) Execute(target, command string, timeout time.Duration) (ExecResult, error) {
-	client, err := p.getClient(target)
+	return p.execute(target, "", command, timeout)
+}
+
+// ExecuteBound runs command through the original SSH alias while requiring the
+// exact canonical target previously used for policy and approval.
+func (p *Pool) ExecuteBound(target, canonicalTarget, command string, timeout time.Duration) (ExecResult, error) {
+	return p.execute(target, canonicalTarget, command, timeout)
+}
+
+func (p *Pool) execute(target, boundTarget, command string, timeout time.Duration) (ExecResult, error) {
+	client, err := p.getClientBound(target, boundTarget)
 	if err != nil {
 		return ExecResult{}, err
 	}
 
 	session, err := client.NewSession()
 	if err != nil {
-		p.evict(target)
-		client, err = p.getClient(target)
+		p.evict(connectionCacheKey(target, boundTarget))
+		client, err = p.getClientBound(target, boundTarget)
 		if err != nil {
 			return ExecResult{}, err
 		}
@@ -238,22 +261,43 @@ func (p *Pool) Execute(target, command string, timeout time.Duration) (ExecResul
 
 // getClient returns a cached or newly-dialed client for the given target.
 func (p *Pool) getClient(target string) (*gossh.Client, error) {
+	return p.getClientBound(target, "")
+}
+
+func (p *Pool) getClientBound(target, boundTarget string) (*gossh.Client, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if c, ok := p.clients[target]; ok {
+	cacheKey := connectionCacheKey(target, boundTarget)
+	if c, ok := p.clients[cacheKey]; ok {
 		if _, _, err := c.SendRequest("keepalive@openssh.com", true, nil); err == nil {
 			return c, nil
 		}
 		c.Close() //nolint:errcheck
-		delete(p.clients, target)
+		delete(p.clients, cacheKey)
 	}
 
 	username, host, port := parseTarget(target)
-	dialHost, dialPort := resolveSSHConfigHost(host, port)
-	addr := net.JoinHostPort(dialHost, dialPort)
+	dialHost, _ := resolveSSHConfigHost(host, port)
+	var canonical Target
+	var err error
+	if boundTarget == "" {
+		canonical, err = canonicalTarget(target)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		canonical = TargetFromString(boundTarget)
+		if net.ParseIP(canonical.Host) == nil {
+			return nil, fmt.Errorf("bound SSH target must contain an IP address: %q", boundTarget)
+		}
+		canonical.Raw = fmt.Sprintf("%s@%s", canonical.User, net.JoinHostPort(canonical.Host, canonical.Port))
+		canonical.Alias = host
+	}
+	username = canonical.User
+	addr := net.JoinHostPort(canonical.Host, canonical.Port)
 
-	signers, err := p.signersFor(context.Background(), target)
+	signers, err := p.auth.SignersFor(context.Background(), canonical)
 	if err != nil {
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
@@ -264,13 +308,16 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
 
-	khCallback, err := buildKnownHostsCallback(host, dialHost, dialPort)
+	khHost := resolveSSHConfigHostKeyAlias(host, dialHost)
+	khCallback, err := buildKnownHostsCallback(host, khHost, canonical.Port, func(key gossh.PublicKey) {
+		setDestinationHostKey(signers, key)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("load known_hosts: %w", err)
 	}
 
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
-	hostKeyAlgos, err := HostKeyAlgorithmsForKnownHost(khPath, dialHost, dialPort)
+	hostKeyAlgos, err := HostKeyAlgorithmsForKnownHost(khPath, khHost, canonical.Port)
 	if err != nil {
 		log.Printf("[SSH] known_hosts host-key algorithm scan for %s: %v (using crypto/ssh defaults)", host, err)
 	}
@@ -315,8 +362,15 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 		log.Printf("[SSH] Connection established to %s", target)
 	}
 
-	p.clients[target] = client
+	p.clients[cacheKey] = client
 	return client, nil
+}
+
+func connectionCacheKey(target, boundTarget string) string {
+	if boundTarget == "" {
+		return target
+	}
+	return target + "\x00" + boundTarget
 }
 
 // evict removes a target's cached client without closing it.
@@ -471,7 +525,7 @@ func tryWrapWithCertificate(privKeyPath, certPathOptional string, signer gossh.S
 
 // buildKnownHostsCallback creates a host key callback from ~/.ssh/known_hosts
 // that respects ~/.ssh/config StrictHostKeyChecking settings (no, accept-new).
-func buildKnownHostsCallback(sshAlias, khHost, khPort string) (gossh.HostKeyCallback, error) {
+func buildKnownHostsCallback(sshAlias, khHost, khPort string, accepted func(gossh.PublicKey)) (gossh.HostKeyCallback, error) {
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
 	checkAddr := knownHostsCheckAddress(khHost, khPort)
 
@@ -490,6 +544,9 @@ func buildKnownHostsCallback(sshAlias, khHost, khPort string) (gossh.HostKeyCall
 			// Match plain and hashed known_hosts entries against the resolved dial target.
 			checkErr = khCallback(checkAddr, remote, key)
 			if checkErr == nil {
+				if accepted != nil {
+					accepted(key)
+				}
 				return nil
 			}
 		} else {
@@ -501,6 +558,9 @@ func buildKnownHostsCallback(sshAlias, khHost, khPort string) (gossh.HostKeyCall
 
 		if strict == "no" || strict == "false" {
 			log.Printf("WARN: bypassing host key check for %s due to StrictHostKeyChecking=%s", sshAlias, strict)
+			if accepted != nil {
+				accepted(key)
+			}
 			return nil
 		}
 
@@ -509,12 +569,10 @@ func buildKnownHostsCallback(sshAlias, khHost, khPort string) (gossh.HostKeyCall
 			if errors.As(checkErr, &keyErr) {
 				// If Want is empty, there were NO keys for this host (completely new).
 				if len(keyErr.Want) == 0 {
-					log.Printf("INFO: auto-accepting new host key for %s due to StrictHostKeyChecking=accept-new", sshAlias)
-					return nil
+					return fmt.Errorf("StrictHostKeyChecking=accept-new is unsupported because lunacli cannot persist the accepted key; use ssh %s once to add it", sshAlias)
 				}
 			} else if checkErr.Error() == "known_hosts file not found" {
-				log.Printf("INFO: auto-accepting new host key for %s because known_hosts is missing", sshAlias)
-				return nil
+				return fmt.Errorf("StrictHostKeyChecking=accept-new is unsupported because lunacli cannot persist the accepted key; use ssh %s once to add it", sshAlias)
 			}
 		}
 
@@ -528,6 +586,20 @@ func buildKnownHostsCallback(sshAlias, khHost, khPort string) (gossh.HostKeyCall
 
 		return nil
 	}, nil
+}
+
+func setDestinationHostKey(signers []gossh.Signer, key gossh.PublicKey) {
+	for _, signer := range signers {
+		if hosted, ok := signer.(*hostedKeySigner); ok {
+			hosted.setDestinationHostKey(key)
+		}
+	}
+}
+
+// BindDestinationHostKey records the verified SSH server host key on local-key
+// signers. Must run from HostKeyCallback before user authentication begins.
+func BindDestinationHostKey(signers []gossh.Signer, key gossh.PublicKey) {
+	setDestinationHostKey(signers, key)
 }
 
 func mustHome() string {

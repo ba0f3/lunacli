@@ -116,6 +116,31 @@ func unwrapCommand(args []string) []string {
 			return args
 		}
 		cmd := args[0]
+		if cmd == "command" || cmd == "nohup" {
+			if cmd == "command" && containsArg(args[1:], "-v", "-V") {
+				return args
+			}
+			i := 1
+			for i < len(args) && strings.HasPrefix(args[i], "-") {
+				i++
+			}
+			if i >= len(args) {
+				return args
+			}
+			args = args[i:]
+			continue
+		}
+		if cmd == "timeout" {
+			i := timeoutDurationIndex(args)
+			if i < len(args) {
+				i++
+			}
+			if i >= len(args) {
+				return args
+			}
+			args = args[i:]
+			continue
+		}
 		if cmd == "env" {
 			i := 1
 			for i < len(args) {
@@ -155,6 +180,197 @@ func unwrapCommand(args []string) []string {
 		break
 	}
 	return args
+}
+
+func timeoutDurationIndex(args []string) int {
+	i := 1
+	for i < len(args) {
+		arg := args[i]
+		if arg == "--" {
+			return i + 1
+		}
+		if arg == "-s" || arg == "--signal" || arg == "-k" || arg == "--kill-after" {
+			i += 2
+			continue
+		}
+		if strings.HasPrefix(arg, "--signal=") || strings.HasPrefix(arg, "--kill-after=") ||
+			(strings.HasPrefix(arg, "-s") && len(arg) > 2) || (strings.HasPrefix(arg, "-k") && len(arg) > 2) ||
+			arg == "--foreground" || arg == "--preserve-status" || arg == "--verbose" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			i++
+			continue
+		}
+		return i
+	}
+	return i
+}
+
+func isLiteralInspectionCommand(command string) bool {
+	switch filepath.Base(strings.ToLower(command)) {
+	case "echo", "printf", "grep", "egrep", "fgrep":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasMutatingFlagPatterns(command string) bool {
+	switch filepath.Base(strings.ToLower(command)) {
+	case "curl", "wget", "find", "sed", "awk":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSemanticMutation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	command := filepath.Base(strings.ToLower(args[0]))
+	lowerArgs := make([]string, len(args)-1)
+	for i, arg := range args[1:] {
+		lowerArgs[i] = strings.ToLower(arg)
+	}
+	switch command {
+	case "date":
+		return containsOption(lowerArgs, "-s", "--set")
+	case "hostname":
+		return isHostnameMutation(args[1:])
+	case "ss":
+		return isSSMutation(args[1:])
+	case "journalctl":
+		return containsArgStartingWith(lowerArgs, "--vacuum") ||
+			containsArgPrefix(lowerArgs, "--cursor-file") ||
+			containsArg(lowerArgs, "--rotate", "--flush", "--sync", "--relinquish-var",
+				"--smart-relinquish-var", "--update-catalog", "--setup-keys")
+	case "ip":
+		return isIPMutation(lowerArgs)
+	case "sort":
+		return containsOption(lowerArgs, "-o", "--output")
+	case "uniq":
+		return uniqHasOutput(lowerArgs)
+	case "diff":
+		return containsArgPrefix(lowerArgs, "--output")
+	default:
+		return false
+	}
+}
+
+func isSSMutation(args []string) bool {
+	for _, arg := range args {
+		lower := strings.ToLower(arg)
+		if lower == "--kill" || lower == "--diag" || strings.HasPrefix(lower, "--diag=") {
+			return true
+		}
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") {
+			options := strings.TrimPrefix(arg, "-")
+			if strings.ContainsRune(options, 'K') || strings.ContainsRune(options, 'D') {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsOption(args []string, short, long string) bool {
+	shortName := strings.TrimPrefix(short, "-")
+	for _, arg := range args {
+		if arg == short || strings.HasPrefix(arg, short) || arg == long || strings.HasPrefix(arg, long+"=") ||
+			(strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(strings.TrimPrefix(arg, "-"), shortName)) {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqHasOutput(args []string) bool {
+	positionals := 0
+	for _, arg := range args {
+		if arg == "--" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		positionals++
+	}
+	return positionals >= 2
+}
+
+func isHostnameMutation(args []string) bool {
+	readOnlyFlags := map[string]struct{}{
+		"-a": {}, "-A": {}, "-d": {}, "-f": {}, "-i": {}, "-I": {}, "-s": {}, "-y": {},
+		"--alias": {}, "--all-fqdns": {}, "--domain": {}, "--fqdn": {}, "--ip-address": {},
+		"--all-ip-addresses": {}, "--short": {}, "--yp": {}, "--nis": {}, "--help": {}, "--version": {},
+	}
+	for _, arg := range args {
+		if _, ok := readOnlyFlags[arg]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArgStartingWith(args []string, prefixes ...string) bool {
+	for _, arg := range args {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(arg, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsArg(args []string, values ...string) bool {
+	for _, arg := range args {
+		for _, value := range values {
+			if arg == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsArgPrefix(args []string, prefixes ...string) bool {
+	for _, arg := range args {
+		for _, prefix := range prefixes {
+			if arg == prefix || strings.HasPrefix(arg, prefix+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isIPMutation(args []string) bool {
+	objects := map[string]struct{}{
+		"addr": {}, "address": {}, "link": {}, "route": {},
+	}
+	readOnlyOps := map[string]struct{}{
+		"show": {}, "list": {}, "get": {}, "help": {}, "save": {}, "monitor": {},
+	}
+	for i, arg := range args {
+		if _, ok := objects[arg]; !ok {
+			continue
+		}
+		for _, op := range args[i+1:] {
+			if strings.HasPrefix(op, "-") {
+				continue
+			}
+			if _, ok := readOnlyOps[op]; ok {
+				return false
+			}
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 func isDatabaseMutation(args []string) bool {

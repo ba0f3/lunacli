@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -26,6 +27,11 @@ func loadUserSSHConfig() (*ssh_config.Config, error) {
 	return ssh_config.Decode(f)
 }
 
+// ResolveSSHConfigHost maps an SSH config Host alias to HostName and Port for dialing.
+func ResolveSSHConfigHost(alias, port string) (host, portOut string) {
+	return resolveSSHConfigHost(alias, port)
+}
+
 // resolveSSHConfigHost maps an SSH config Host alias to the HostName and Port
 // used for dialing and known_hosts matching (OpenSSH hashes the resolved target).
 func resolveSSHConfigHost(alias, port string) (host, portOut string) {
@@ -39,6 +45,44 @@ func resolveSSHConfigHost(alias, port string) (host, portOut string) {
 		return host, portOut
 	}
 	return resolveSSHConfigHostFrom(cfg, alias, port)
+}
+
+// KnownHostsHost returns the host name used for known_hosts lookup (HostKeyAlias or resolved host).
+func KnownHostsHost(alias, resolvedHost string) string {
+	return resolveSSHConfigHostKeyAlias(alias, resolvedHost)
+}
+
+func resolveSSHConfigHostKeyAlias(alias, resolvedHost string) string {
+	cfg, err := loadUserSSHConfig()
+	if err == nil && cfg != nil {
+		if hostKeyAlias, getErr := cfg.Get(alias, "HostKeyAlias"); getErr == nil && strings.TrimSpace(hostKeyAlias) != "" {
+			return strings.TrimSpace(hostKeyAlias)
+		}
+	}
+	return resolvedHost
+}
+
+func canonicalTarget(target string) (Target, error) {
+	username, host, port := parseTarget(target)
+	if !strings.Contains(target, "@") {
+		if cfg, err := loadUserSSHConfig(); err == nil && cfg != nil {
+			if configuredUser, getErr := cfg.Get(host, "User"); getErr == nil && strings.TrimSpace(configuredUser) != "" {
+				username = strings.TrimSpace(configuredUser)
+			}
+		}
+	}
+	dialHost, dialPort := resolveSSHConfigHost(host, port)
+	targetIP, err := resolveTargetIP(dialHost, dialPort)
+	if err != nil {
+		return Target{}, fmt.Errorf("resolve target %s: %w", dialHost, err)
+	}
+	return Target{
+		User:  username,
+		Host:  targetIP,
+		Port:  dialPort,
+		Raw:   fmt.Sprintf("%s@%s", username, net.JoinHostPort(targetIP, dialPort)),
+		Alias: host,
+	}, nil
 }
 
 func resolveSSHConfigHostFrom(cfg *ssh_config.Config, alias, port string) (host, portOut string) {

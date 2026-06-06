@@ -3,12 +3,25 @@ package ssh
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/ba0f3/luna-ztrust/sdk"
 	gossh "golang.org/x/crypto/ssh"
 )
+
+func TestMapSDKAccessError_SessionBindingDetail(t *testing.T) {
+	err := mapSDKAccessError(
+		fmt.Errorf("POST sign: HTTP 401: invalid SSH session binding: user-auth request mismatch"),
+		Target{Raw: "root@10.9.5.15:22"},
+	)
+	if !strings.Contains(err.Error(), "user-auth request mismatch") {
+		t.Fatalf("got %v", err)
+	}
+}
 
 func TestMapSDKAccessError_DeniedHTTP(t *testing.T) {
 	err := mapSDKAccessError(fmt.Errorf("POST sign: HTTP 403: denied"), Target{Raw: "u@h:22"})
@@ -40,4 +53,59 @@ func TestFakeProxyClient_SDKTypes(t *testing.T) {
 	var _ proxySignerClient = (*fakeProxyClient)(nil)
 	_ = sdk.CertRequest{}
 	_ = ed25519.PrivateKey{}
+}
+
+func TestHostedKeySigner_BindsAcceptedDestinationHostKey(t *testing.T) {
+	_, hostedPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosted, err := gossh.NewSignerFromKey(hostedPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, destinationPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := gossh.NewSignerFromKey(destinationPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client := &fakeProxyClient{err: io.EOF}
+	signer := &hostedKeySigner{
+		pub:    hosted.PublicKey(),
+		client: client,
+		req: sdk.SignatureRequest{
+			TargetUser: "alice",
+			TargetIP:   "192.0.2.10",
+		},
+	}
+	signer.setDestinationHostKey(destination.PublicKey())
+
+	signData := []byte("ssh userauth sign data")
+	_, _ = signer.Sign(rand.Reader, signData)
+	if got, want := string(client.signatureRequest.DestinationHostPublicKey), string(destination.PublicKey().Marshal()); got != want {
+		t.Fatalf("destination host public key = %x, want %x", got, want)
+	}
+	if got, want := string(client.lastSignData), string(signData); got != want {
+		t.Fatalf("sign data forwarded unchanged = %q, want %q", got, want)
+	}
+}
+
+func TestHostedKeySigner_RejectsSignBeforeHostKeyValidation(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosted, err := gossh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := &hostedKeySigner{pub: hosted.PublicKey(), client: &fakeProxyClient{}}
+
+	if _, err := signer.Sign(rand.Reader, []byte("data")); err == nil {
+		t.Fatal("Sign() error = nil, want missing destination host key error")
+	}
 }

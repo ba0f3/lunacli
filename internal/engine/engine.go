@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"net"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -47,15 +48,15 @@ func NewEngine(pol *policy.Policy) *Engine {
 }
 
 func (e *Engine) Classify(command string, host string, tags []string) Result {
+	return e.ClassifyTargets(command, []string{host}, tags)
+}
+
+// ClassifyTargets evaluates policy against every identity for the same target,
+// such as the caller's SSH alias and the canonical approved endpoint.
+func (e *Engine) ClassifyTargets(command string, hosts []string, tags []string) Result {
 	cmd := strings.TrimSpace(command)
 	if len(cmd) > maxCommandLen {
 		return Result{Class: Forbidden, Reason: "command exceeds maximum length"}
-	}
-
-	for _, re := range forbiddenPatterns {
-		if re.MatchString(cmd) {
-			return Result{Class: Forbidden, Reason: "command matches compiled forbidden pattern"}
-		}
 	}
 
 	p := syntax.NewParser()
@@ -84,12 +85,19 @@ func (e *Engine) Classify(command string, host string, tags []string) Result {
 		switch x := node.(type) {
 		case *syntax.Redirect:
 			if strings.Contains(x.Op.String(), ">") {
-				if path, ok := wordStaticString(x.Word); !ok || !isDiscardRedirectTarget(path) {
+				target, ok := wordStaticString(x.Word)
+				if ok && isForbiddenRedirectTarget(target) {
+					flag(Forbidden, "command redirects output to a block device")
+				} else if !ok || !isSafeOutputRedirect(x.Op.String(), target) {
 					flag(Mutating, "command contains output redirection")
 				}
 			}
 		case *syntax.CmdSubst, *syntax.ProcSubst:
 			flag(Mutating, "command contains substitution")
+		case *syntax.FuncDecl:
+			if x.Name != nil && x.Name.Value == ":" {
+				flag(Forbidden, "command declares fork-bomb function")
+			}
 		case *syntax.CallExpr:
 			if len(x.Args) == 0 {
 				return true
@@ -138,18 +146,26 @@ func (e *Engine) Classify(command string, host string, tags []string) Result {
 			unquotedCmd := strings.Join(args, " ")
 			lowerCmd := strings.ToLower(unquotedCmd)
 
-			for _, re := range forbiddenPatterns {
-				if re.MatchString(unquotedCmd) {
-					flag(Forbidden, "command matches compiled forbidden pattern")
-					return false
+			if !isLiteralInspectionCommand(args[0]) {
+				for _, re := range forbiddenPatterns {
+					if re.MatchString(unquotedCmd) {
+						flag(Forbidden, "command matches compiled forbidden pattern")
+						return false
+					}
 				}
 			}
 
-			for _, re := range mutatingFlagPatterns {
-				if re.MatchString(lowerCmd) {
-					flag(Mutating, "command contains mutating flags")
-					return true
+			if hasMutatingFlagPatterns(args[0]) {
+				for _, re := range mutatingFlagPatterns {
+					if re.MatchString(lowerCmd) {
+						flag(Mutating, "command contains mutating flags")
+						return true
+					}
 				}
+			}
+
+			if isSemanticMutation(args) {
+				flag(Mutating, "command performs a mutating operation")
 			}
 
 			if isDatabaseMutation(args) {
@@ -167,7 +183,7 @@ func (e *Engine) Classify(command string, host string, tags []string) Result {
 
 				matched := false
 				for _, rule := range e.pol.Rules {
-					if !matchHostOrTags(rule.Hosts, rule.Tags, host, tags) {
+					if !matchAnyHostOrTags(rule.Hosts, rule.Tags, hosts, tags) {
 						continue
 					}
 					for _, rcmd := range rule.Commands {
@@ -201,6 +217,35 @@ func (e *Engine) Classify(command string, host string, tags []string) Result {
 	})
 
 	return res
+}
+
+func matchAnyHostOrTags(ruleHosts, ruleTags, targetHosts, targetTags []string) bool {
+	for _, targetHost := range targetHosts {
+		for _, variant := range hostIdentityVariants(targetHost) {
+			if matchHostOrTags(ruleHosts, ruleTags, variant, targetTags) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hostIdentityVariants(target string) []string {
+	variants := []string{target}
+	host := target
+	user := ""
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		user = host[:at]
+		host = host[at+1:]
+		variants = append(variants, host)
+	}
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		variants = append(variants, parsedHost)
+		if user != "" {
+			variants = append(variants, user+"@"+parsedHost)
+		}
+	}
+	return variants
 }
 
 func parseAction(action string) Classification {
@@ -290,4 +335,30 @@ func wordStaticString(w *syntax.Word) (string, bool) {
 
 func isDiscardRedirectTarget(target string) bool {
 	return path.Clean(target) == "/dev/null"
+}
+
+func isSafeOutputRedirect(op, target string) bool {
+	clean := path.Clean(target)
+	if isDiscardRedirectTarget(clean) {
+		return true
+	}
+	if op == ">&" && (target == "1" || target == "2" || target == "-") {
+		return true
+	}
+	switch clean {
+	case "/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2", "/proc/self/fd/1", "/proc/self/fd/2":
+		return true
+	default:
+		return false
+	}
+}
+
+func isForbiddenRedirectTarget(target string) bool {
+	clean := path.Clean(target)
+	return strings.HasPrefix(clean, "/dev/sd") ||
+		strings.HasPrefix(clean, "/dev/hd") ||
+		strings.HasPrefix(clean, "/dev/nvme") ||
+		strings.HasPrefix(clean, "/dev/mapper/") ||
+		strings.HasPrefix(clean, "/dev/tcp/") ||
+		strings.HasPrefix(clean, "/dev/udp/")
 }

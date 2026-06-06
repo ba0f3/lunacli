@@ -25,12 +25,18 @@ func TestMemoryStore_PendingApproveConsume(t *testing.T) {
 	if err != nil || got.Status != StatusApproved {
 		t.Fatalf("Get() = %+v, %v", got, err)
 	}
-	if err := st.MarkConsumed("id-1", now); err != nil {
+	if err := st.ConsumeApproved("id-1", now); err != nil {
 		t.Fatal(err)
+	}
+	if err := st.ConsumeApproved("id-1", now); !errors.Is(err, ErrConsumed) {
+		t.Fatalf("second ConsumeApproved() error = %v, want ErrConsumed", err)
 	}
 	got, err = st.Get("id-1")
 	if err != nil || got.Status != StatusConsumed {
 		t.Fatalf("after consume: %+v, %v", got, err)
+	}
+	if got.DecidedAt == nil || !got.DecidedAt.Equal(now) {
+		t.Fatalf("consume changed decision time: %v", got.DecidedAt)
 	}
 }
 

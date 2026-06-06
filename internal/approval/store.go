@@ -20,6 +20,7 @@ type Record struct {
 	Classification    string
 	Reason            string
 	Fingerprint       string
+	ExactBinding      string
 	Status            Status
 	CreatedAt         time.Time
 	ExpiresAt         time.Time
@@ -42,7 +43,7 @@ type Store interface {
 	Get(id string) (Record, error)
 	ListPending() ([]Record, error)
 	UpdateStatus(id string, status Status, approver string, decidedAt time.Time) error
-	MarkConsumed(id string, at time.Time) error
+	ConsumeApproved(id string, at time.Time) error
 	AppendAudit(e AuditEvent) error
 	ExpireDue(now time.Time) error
 	SetTelegramMessage(id string, chatID, messageID int64) error

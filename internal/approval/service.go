@@ -2,7 +2,12 @@ package approval
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -27,18 +32,24 @@ type PendingInfo struct {
 
 // Service coordinates approval lifecycle transitions on top of a Store.
 type Service struct {
-	store Store
-	cfg   Config
-	now   func() time.Time
+	store      Store
+	cfg        Config
+	now        func() time.Time
+	bindingKey []byte
 }
 
 // NewService returns an approval service using cfg.TTL for pending expiry.
 // The clock defaults to time.Now; tests in this package may replace svc.now.
 func NewService(store Store, cfg Config) *Service {
+	bindingKey := make([]byte, 32)
+	if _, err := rand.Read(bindingKey); err != nil {
+		panic(fmt.Sprintf("generate approval binding key: %v", err))
+	}
 	return &Service{
-		store: store,
-		cfg:   cfg,
-		now:   time.Now,
+		store:      store,
+		cfg:        cfg,
+		now:        time.Now,
+		bindingKey: bindingKey,
 	}
 }
 
@@ -61,6 +72,7 @@ func (s *Service) CreatePending(tool string, req ExecuteRemoteRequest, body []by
 		Classification:   class,
 		Reason:           reason,
 		Fingerprint:      fingerprint,
+		ExactBinding:     s.exactBinding(req),
 		Status:           StatusPending,
 		CreatedAt:        now,
 		ExpiresAt:        expires,
@@ -223,8 +235,11 @@ func (s *Service) VerifyAndConsume(id string, req ExecuteRemoteRequest, body []b
 	if req.Tool != r.Tool || req.Host != r.Host || req.Command != r.RedactedCommand {
 		return ErrMismatch
 	}
+	if !hmac.Equal([]byte(s.exactBinding(req)), []byte(r.ExactBinding)) {
+		return ErrMismatch
+	}
 
-	if err := s.store.MarkConsumed(id, now); err != nil {
+	if err := s.store.ConsumeApproved(id, now); err != nil {
 		return err
 	}
 	return s.store.AppendAudit(AuditEvent{
@@ -233,6 +248,24 @@ func (s *Service) VerifyAndConsume(id string, req ExecuteRemoteRequest, body []b
 		Detail:     `{"via":"verify_and_consume"}`,
 		CreatedAt:  now,
 	})
+}
+
+func (s *Service) exactBinding(req ExecuteRemoteRequest) string {
+	command := req.rawCommand
+	if command == "" {
+		command = req.Command
+	}
+	body, _ := json.Marshal(struct {
+		Tool       string  `json:"tool"`
+		Host       string  `json:"host"`
+		Command    string  `json:"command"`
+		TimeoutSec float64 `json:"timeout_sec"`
+	}{
+		Tool: req.Tool, Host: req.Host, Command: command, TimeoutSec: req.TimeoutSec,
+	})
+	mac := hmac.New(sha256.New, s.bindingKey)
+	_, _ = mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // ExpireDue marks overdue pending approvals as expired (decided_at = now).
