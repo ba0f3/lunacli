@@ -10,13 +10,23 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lunacli
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: lunacli
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ba0f3/luna-ztrust
+          path: luna-ztrust
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
+          go-version-file: lunacli/go.mod
+          cache-dependency-path: lunacli/go.sum
 
       - name: Build
         run: make build

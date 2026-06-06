@@ -11,20 +11,30 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lunacli
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          path: lunacli
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ba0f3/luna-ztrust
+          path: luna-ztrust
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
+          go-version-file: lunacli/go.mod
+          cache-dependency-path: lunacli/go.sum
 
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean
+          workdir: lunacli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
