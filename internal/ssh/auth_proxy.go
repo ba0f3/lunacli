@@ -38,6 +38,7 @@ type proxySignerClient interface {
 type proxyAuth struct {
 	client     proxySignerClient
 	signerMode string
+	caps       sdk.Capabilities // from startup FetchCapabilities; reused for local-key signers
 	mu         sync.Mutex
 	cache      map[string][]gossh.Signer
 }
@@ -69,6 +70,7 @@ func newProxyAuth(cfg *config.Settings) (*proxyAuth, error) {
 	return &proxyAuth{
 		client:     wrapped,
 		signerMode: mode,
+		caps:       caps,
 		cache:      make(map[string][]gossh.Signer),
 	}, nil
 }
@@ -157,12 +159,8 @@ func (p *proxyAuth) signersLocalCA(ctx context.Context, t Target, targetIP strin
 	return []gossh.Signer{signer}, nil
 }
 
-func (p *proxyAuth) signersLocalKey(ctx context.Context, t Target, targetIP string, client sdk.ClientInfo) ([]gossh.Signer, error) {
-	caps, err := p.client.FetchCapabilities(ctx)
-	if err != nil {
-		return nil, mapSDKAccessError(fmt.Errorf("GET capabilities: %w", err), t)
-	}
-	fp, pub, err := selectLoadedSigner(caps)
+func (p *proxyAuth) signersLocalKey(_ context.Context, t Target, targetIP string, client sdk.ClientInfo) ([]gossh.Signer, error) {
+	fp, pub, err := selectLoadedSigner(p.caps)
 	if err != nil {
 		return nil, fmt.Errorf("%s", FormatAccessError(t, err))
 	}
@@ -327,6 +325,13 @@ func mapSDKAccessError(err error, t Target) error {
 		return fmt.Errorf("%s", FormatAccessError(t, ErrAccessDenied))
 	case strings.Contains(msg, "http 401"):
 		return fmt.Errorf("%s", FormatAccessError(t, proxySignDetailError(orig)))
+	case strings.Contains(msg, "connection reset"),
+		strings.Contains(msg, "broken pipe"),
+		strings.Contains(msg, "use of closed network connection"),
+		strings.Contains(msg, "dial tcp"),
+		strings.Contains(msg, "tls:"),
+		strings.Contains(msg, "eof"):
+		return fmt.Errorf("%s", FormatAccessError(t, fmt.Errorf("luna-proxy connection failed: %w", err)))
 	default:
 		return fmt.Errorf("%s", FormatAccessError(t, err))
 	}

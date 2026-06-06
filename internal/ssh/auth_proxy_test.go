@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"io"
 	"strings"
@@ -107,5 +108,53 @@ func TestHostedKeySigner_RejectsSignBeforeHostKeyValidation(t *testing.T) {
 
 	if _, err := signer.Sign(rand.Reader, []byte("data")); err == nil {
 		t.Fatal("Sign() error = nil, want missing destination host key error")
+	}
+}
+
+type fetchCountProxyClient struct {
+	fakeProxyClient
+	fetchCalls int
+}
+
+func (f *fetchCountProxyClient) FetchCapabilities(ctx context.Context) (sdk.Capabilities, error) {
+	f.fetchCalls++
+	return f.fakeProxyClient.FetchCapabilities(ctx)
+}
+
+func TestSignersLocalKey_ReusesInitCapabilities(t *testing.T) {
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := gossh.NewSignerFromKey(rsaKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := signer.PublicKey()
+	line := string(gossh.MarshalAuthorizedKey(pub))
+
+	client := &fetchCountProxyClient{}
+	p := &proxyAuth{
+		client:     client,
+		signerMode: proxySignerModeLocalKey,
+		caps: sdk.Capabilities{
+			SignerMode: proxySignerModeLocalKey,
+			LoadedSigners: []sdk.LoadedSigner{{
+				PublicKey:   line,
+				Fingerprint: gossh.FingerprintSHA256(pub),
+			}},
+		},
+		cache: make(map[string][]gossh.Signer),
+	}
+
+	signers, err := p.signersLocalKey(context.Background(), Target{User: "root", Host: "127.0.0.1", Port: "22"}, "127.0.0.1", sdk.ClientInfo{})
+	if err != nil {
+		t.Fatalf("signersLocalKey: %v", err)
+	}
+	if len(signers) != 1 {
+		t.Fatalf("signers = %d, want 1", len(signers))
+	}
+	if client.fetchCalls != 0 {
+		t.Fatalf("FetchCapabilities called %d times during signersLocalKey, want 0 (use startup cache)", client.fetchCalls)
 	}
 }
