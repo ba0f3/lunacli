@@ -48,6 +48,7 @@ var serveCmd = &cobra.Command{
 			log.Fatalf("approval: %v", err)
 		}
 		defer boot.PollCancel()
+		pool.SetHostTrustGate(boot.Gate)
 
 		s := server.NewMCPServer(
 			"luna", "2.0.0",

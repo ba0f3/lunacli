@@ -31,9 +31,31 @@ type ExecResult struct {
 // Pool manages a cache of SSH client connections.
 // Connections are established lazily and reused across calls.
 type Pool struct {
-	mu      sync.Mutex
-	clients map[string]*gossh.Client
-	auth    AuthProvider
+	mu        sync.Mutex
+	clients   map[string]*gossh.Client
+	auth      AuthProvider
+	configDir string
+	hostTrust hostTrustGate
+}
+
+type hostTrustGate interface {
+	WaitTrustHostApproval(ctx context.Context, alias, hostTarget, canonicalHost, configDir string, pub gossh.PublicKey) error
+}
+
+// SetHostTrustGate wires Telegram/out-of-band host-trust approval for luna serve.
+func (p *Pool) SetHostTrustGate(g hostTrustGate) {
+	if p == nil {
+		return
+	}
+	p.hostTrust = g
+}
+
+// ConfigDir returns the Luna config directory (policy.yml / hosts.yml), if any.
+func (p *Pool) ConfigDir() string {
+	if p == nil {
+		return ""
+	}
+	return p.configDir
 }
 
 // sharedAgent holds one ssh-agent connection for the process. Agent-backed
@@ -115,9 +137,14 @@ func NewPool(cfg *config.Settings) (*Pool, error) {
 	if cfg != nil {
 		log.Printf("[SSH] transport.mode=%s", cfg.TransportMode())
 	}
+	var configDir string
+	if cfg != nil {
+		configDir = cfg.ConfigDir()
+	}
 	return &Pool{
-		clients: make(map[string]*gossh.Client),
-		auth:    auth,
+		clients:   make(map[string]*gossh.Client),
+		auth:      auth,
+		configDir: configDir,
 	}, nil
 }
 
@@ -308,7 +335,7 @@ func (p *Pool) getClientBound(target, boundTarget string) (*gossh.Client, error)
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
 
-	khCallback, err := buildKnownHostsCallback(host, dialHost, canonical.Port, func(key gossh.PublicKey) {
+	khCallback, err := buildKnownHostsCallback(p.configDir, p.hostTrust, host, dialHost, canonical.Port, target, canonical.Raw, func(key gossh.PublicKey) {
 		setDestinationHostKey(signers, key)
 	})
 	if err != nil {
@@ -316,7 +343,7 @@ func (p *Pool) getClientBound(target, boundTarget string) (*gossh.Client, error)
 	}
 
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
-	hostKeyAlgos, err := HostKeyAlgorithmsForTarget(khPath, host, dialHost, canonical.Port)
+	hostKeyAlgos, err := HostKeyAlgorithmsForTarget(p.configDir, khPath, host, dialHost, canonical.Port)
 	if err != nil {
 		log.Printf("[SSH] known_hosts host-key algorithm scan for %s: %v (using crypto/ssh defaults)", host, err)
 	}
@@ -522,9 +549,9 @@ func tryWrapWithCertificate(privKeyPath, certPathOptional string, signer gossh.S
 	return signer
 }
 
-// buildKnownHostsCallback creates a host key callback from ~/.ssh/known_hosts
-// that respects ~/.ssh/config StrictHostKeyChecking settings (no, accept-new).
-func buildKnownHostsCallback(sshAlias, dialHost, khPort string, accepted func(gossh.PublicKey)) (gossh.HostKeyCallback, error) {
+// buildKnownHostsCallback creates a host key callback from ~/.ssh/known_hosts and
+// hosts.yml (secondary) that respects ~/.ssh/config StrictHostKeyChecking settings.
+func buildKnownHostsCallback(configDir string, hostTrust hostTrustGate, sshAlias, dialHost, khPort, hostTarget, canonicalTarget string, accepted func(gossh.PublicKey)) (gossh.HostKeyCallback, error) {
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
 	lookupHosts := knownHostsLookupCandidates(sshAlias, dialHost, khPort)
 
@@ -554,6 +581,15 @@ func buildKnownHostsCallback(sshAlias, dialHost, khPort string, accepted func(go
 			checkErr = fmt.Errorf("known_hosts file not found")
 		}
 
+		if ok, err := VerifyHostKeyFromInventory(configDir, sshAlias, dialHost, khPort, key); err != nil {
+			return err
+		} else if ok {
+			if accepted != nil {
+				accepted(key)
+			}
+			return nil
+		}
+
 		// Read StrictHostKeyChecking for the target host
 		strict := strings.ToLower(ssh_config.Get(sshAlias, "StrictHostKeyChecking"))
 
@@ -577,16 +613,57 @@ func buildKnownHostsCallback(sshAlias, dialHost, khPort string, accepted func(go
 			}
 		}
 
+		if hostTrust != nil && configDir != "" {
+			log.Printf("[SSH] host %q unknown; waiting for host-trust approval via Telegram", sshAlias)
+			if err := hostTrust.WaitTrustHostApproval(context.Background(), sshAlias, hostTarget, canonicalTarget, configDir, key); err != nil {
+				log.Printf("[SSH] host-trust approval for %q: %v", sshAlias, err)
+			} else {
+				if accepted != nil {
+					accepted(key)
+				}
+				return nil
+			}
+		}
+
+		if isInteractiveStdin() && configDir != "" {
+			hostLine := canonicalTarget
+			if hostLine == "" {
+				hostLine = hostTarget
+			}
+			added, promptErr := config.PromptAddHostEntry(os.Stdin, os.Stderr, configDir, sshAlias, hostLine, key)
+			if promptErr != nil {
+				return promptErr
+			}
+			if added {
+				if accepted != nil {
+					accepted(key)
+				}
+				return nil
+			}
+		}
+
 		// Provide a more helpful error message
 		if checkErr != nil {
-			if strict == "ask" || strict == "" {
-				return fmt.Errorf("%w (StrictHostKeyChecking=%s, use 'ssh %s' to accept or set accept-new in config)", checkErr, strict, sshAlias)
+			hint := inventoryTrustHint(configDir, sshAlias)
+			if hostTrust != nil {
+				hint += "; approve host trust in Telegram when prompted during dial"
 			}
-			return fmt.Errorf("%w", checkErr)
+			if strict == "ask" || strict == "" {
+				return fmt.Errorf("%w (StrictHostKeyChecking=%s; %s)", checkErr, strict, hint)
+			}
+			return fmt.Errorf("%w (%s)", checkErr, hint)
 		}
 
 		return nil
 	}, nil
+}
+
+func isInteractiveStdin() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 func setDestinationHostKey(signers []gossh.Signer, key gossh.PublicKey) {

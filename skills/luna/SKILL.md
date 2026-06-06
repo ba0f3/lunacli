@@ -1,7 +1,7 @@
 ---
 name: luna
 description: >-
-  Use lunacli MCP tools for secure remote Linux SSH execution. Invoke when the
+  Use luna MCP tools for secure remote Linux SSH execution. Invoke when the
   user asks to run commands, read files, or inspect hosts remotely; when lunacli
   or luna serve is configured; or when MCP tools execute_remote, list_hosts,
   read_file, fetch_remote_file, or scan_host_inventory are available. Never use
@@ -42,10 +42,11 @@ Operator setup (once per machine): `luna onboard` → writes `luna.config.json`,
 
 1. **Use MCP tools only** for remote work when Luna is connected. Do not run `ssh`, `scp`, `rsync`, or `curl` against managed hosts to bypass policy.
 2. **Do not invent approval.** Mutating commands require a human approver (Telegram by default). You cannot self-approve.
-3. **Call `list_hosts` first** when the target host is unknown. Hosts come from `~/.ssh/known_hosts` (including hashed entries resolved via `~/.ssh/config` aliases).
-4. **Prefer read-only tools** before mutating: `read_file`, `scan_host_inventory`, read-only `execute_remote` (`cat`, `grep`, `systemctl status`, etc.).
-5. **One command per `execute_remote` call.** Do not chain mutating operations to evade classification.
-6. **Respect timeouts.** Default `timeout_sec` is 30 (max 300). Increase for long-running read-only diagnostics only when needed.
+3. **Call `list_hosts` first** when the target host is unknown. Hosts come from `~/.ssh/known_hosts` and `hosts.yml` entries with `host_key`.
+4. **Unknown host keys** — on first connect to an untrusted host, Luna blocks and sends a **TRUST HOST** Telegram prompt (when `luna serve` is running). Approve there to add the host to `hosts.yml`. On an interactive terminal, `luna ssh-debug <host>` can prompt locally instead.
+5. **Prefer read-only tools** before mutating: `read_file`, `scan_host_inventory`, read-only `execute_remote` (`cat`, `grep`, `systemctl status`, etc.).
+6. **One command per `execute_remote` call.** Do not chain mutating operations to evade classification.
+7. **Respect timeouts.** Default `timeout_sec` is 30 (max 300). Increase for long-running read-only diagnostics only when needed.
 
 ## Tool reference
 
@@ -113,7 +114,7 @@ Non-zero `Exit` is a normal command failure, not an MCP error. Inspect stderr be
 | `ACCESS_REQUIRED:` | luna-proxy access not yet approved (transport.mode proxy) | Tell user to approve on **proxy** Telegram, then retry the same call. |
 | `ACCESS_DENIED:` | Proxy denied access | Stop. Do not retry blindly. |
 | `ACCESS_EXPIRED:` | Signed credential expired | Retry; user re-approves on proxy. |
-| `SSH execution error:` | Dial/auth/session failure | Check host alias, known_hosts, proxy/certs. Do not switch to raw ssh. |
+| `SSH execution error:` | Dial/auth/session failure | Check host alias, known_hosts, hosts.yml host_key, proxy/certs. If host is new, approve **TRUST HOST** in Telegram. Do not switch to raw ssh. |
 
 **Never** treat `PERMISSION_REQUIRED` as "ask the user in chat to type yes" — Luna requires **out-of-band** approval (Telegram). Inform the user that a Telegram prompt was sent.
 
@@ -147,3 +148,31 @@ When blocked:
 - Using `allow_mutations` or similar client flags (not honored for mutations)
 - Bypassing Luna with terminal ssh because MCP returned an error
 - Guessing hostnames instead of calling `list_hosts`
+
+## Infrastructure Learning Protocol
+
+Luna automatically maintains `data/infrastructure/` when conversations or tool
+results reveal infrastructure facts.
+
+### Knowledge Base Rules
+
+- Store structured facts as YAML and human notes as Markdown.
+- Record provenance for every fact: source type, timestamp, evidence, and confidence.
+- Prefer fresh `scan_host_inventory` evidence over older conversation-derived facts.
+- Treat explicit user statements as useful but low-confidence until confirmed by scan or Wazuh evidence.
+- Never store credentials, private keys, passwords, tokens, session cookies, or secret values.
+- Redact secret-like process arguments before writing command lines.
+- Keep Wazuh evidence separate from direct host scan evidence.
+
+### Inventory Scan Workflow
+
+When asked to learn, scan, inventory, or document servers:
+
+1. Call `list_hosts`.
+2. Select requested hosts, or ask for scope if the user request is ambiguous.
+3. Call `scan_host_inventory` once per selected host.
+4. Write scan evidence under `data/infrastructure/scans/<timestamp>/`.
+5. Update `data/infrastructure/hosts/<host-id>/` with host, package, service, process, port, container, and vulnerability files.
+6. Update `data/infrastructure/software/<software-id>.yaml` cross-references.
+7. Update `data/infrastructure/index.md`.
+8. Report what was learned, which collectors failed, confidence level, and recommended next checks.

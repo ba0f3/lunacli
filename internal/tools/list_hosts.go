@@ -13,7 +13,7 @@ import (
 
 func registerListHosts(s *server.MCPServer) {
 	tool := mcp.NewTool("list_hosts",
-		mcp.WithDescription(`List hostnames from ~/.ssh/known_hosts (plain entries and SSH config aliases matching hashed |1| lines).
+		mcp.WithDescription(`List hostnames trusted for SSH: ~/.ssh/known_hosts (including hashed entries) and hosts.yml entries with host_key.
 Use this before execute_remote to find available hosts.
 Credentials and keys are managed by your local SSH agent.`),
 	)
@@ -25,13 +25,13 @@ Credentials and keys are managed by your local SSH agent.`),
 		}
 
 		if len(hosts) == 0 {
-			return mcp.NewToolResultText("No hosts found in ~/.ssh/known_hosts (including hashed entries resolvable from ~/.ssh/config)."), nil
+			return mcp.NewToolResultText("No trusted hosts found in ~/.ssh/known_hosts or hosts.yml."), nil
 		}
 
 		sort.Strings(hosts)
 
 		var b strings.Builder
-		b.WriteString("Available Hosts (from ~/.ssh/known_hosts):\n")
+		b.WriteString("Available trusted hosts (~/.ssh/known_hosts and hosts.yml):\n")
 		b.WriteString(strings.Repeat("─", 50) + "\n")
 
 		for _, host := range hosts {

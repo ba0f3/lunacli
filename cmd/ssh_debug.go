@@ -94,6 +94,9 @@ func runSSHDebug(target string) error {
 		return fmt.Errorf("SSH auth: %w", err)
 	}
 
+	configDir := settings.ConfigDir()
+	fmt.Printf("config dir: %s\n", configDir)
+
 	debugCallback := func(hostname string, remote net.Addr, key gossh.PublicKey) error {
 		fmt.Printf("\n[DEBUG] Server presented host key:\n")
 		fmt.Printf("  Type: %s\n", key.Type())
@@ -126,6 +129,26 @@ func runSSHDebug(target string) error {
 			} else {
 				fmt.Printf("\n[DEBUG] knownhosts.New callback result: OK (Key matched!)\n")
 				apssh.BindDestinationHostKey(signers, key)
+				return nil
+			}
+		}
+
+		if ok, invErr := apssh.VerifyHostKeyFromInventory(configDir, host, dialHost, canonicalT.Port, key); invErr != nil {
+			return invErr
+		} else if ok {
+			fmt.Printf("\n[DEBUG] hosts.yml trust: OK (Key matched!)\n")
+			apssh.BindDestinationHostKey(signers, key)
+			return nil
+		}
+
+		if khErr != nil {
+			added, promptErr := config.PromptAddHostEntry(os.Stdin, os.Stdout, configDir, host, canonical, key)
+			if promptErr != nil {
+				return promptErr
+			}
+			if added {
+				apssh.BindDestinationHostKey(signers, key)
+				return nil
 			}
 		}
 
@@ -146,7 +169,7 @@ func runSSHDebug(target string) error {
 		HostKeyCallback: debugCallback,
 		Timeout:         sshDebugDialTimeout,
 	}
-	if preAlgos, scanErr := apssh.HostKeyAlgorithmsForTarget(khPath, host, dialHost, canonicalT.Port); scanErr != nil {
+	if preAlgos, scanErr := apssh.HostKeyAlgorithmsForTarget(configDir, khPath, host, dialHost, canonicalT.Port); scanErr != nil {
 		fmt.Printf("Warning: scan known_hosts for host key algorithms: %v\n", scanErr)
 	} else if len(preAlgos) > 0 {
 		fmt.Printf("HostKeyAlgorithms pinned from known_hosts: %v\n", preAlgos)
@@ -186,6 +209,10 @@ func runSSHDebug(target string) error {
 		}
 		for _, lookupHost := range lookupHosts {
 			if err := khCallback(net.JoinHostPort(lookupHost, canonicalT.Port), remote, key); err != nil {
+				if ok, invErr := apssh.VerifyHostKeyFromInventory(configDir, host, dialHost, canonicalT.Port, key); invErr == nil && ok {
+					apssh.BindDestinationHostKey(signers, key)
+					return nil
+				}
 				if lookupHost == lookupHosts[len(lookupHosts)-1] {
 					return err
 				}

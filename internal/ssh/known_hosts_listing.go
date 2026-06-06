@@ -12,7 +12,7 @@ import (
 
 var knownHostsCommentIP = regexp.MustCompile(`#\s*(\d+\.\d+\.\d+\.\d+):\d+`)
 
-func discoverKnownHostNames(khPath string, plain []string) ([]string, error) {
+func discoverKnownHostNames(configDir, khPath string, plain []string) ([]string, error) {
 	hostSet := make(map[string]struct{})
 	for _, h := range plain {
 		hostSet[h] = struct{}{}
@@ -23,7 +23,7 @@ func discoverKnownHostNames(khPath string, plain []string) ([]string, error) {
 		return nil, err
 	}
 	for _, c := range candidates {
-		ok, err := HasKnownHostEntryForTarget(khPath, c.label, c.host, c.port)
+		ok, err := HasKnownHostEntryForTarget(configDir, khPath, c.label, c.host, c.port)
 		if err != nil {
 			return nil, err
 		}
@@ -44,6 +44,14 @@ func discoverKnownHostNames(khPath string, plain []string) ([]string, error) {
 		if ok {
 			hostSet[name] = struct{}{}
 		}
+	}
+
+	aliases, err := inventoryAliases(configDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, alias := range aliases {
+		hostSet[alias] = struct{}{}
 	}
 
 	result := make([]string, 0, len(hostSet))

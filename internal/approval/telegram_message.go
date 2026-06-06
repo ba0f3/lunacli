@@ -58,6 +58,9 @@ func telegramStatusEmoji(statusLabel string) string {
 }
 
 func formatTelegramPendingMessage(pending PendingInfo, req ExecuteRemoteRequest) string {
+	if req.Tool == trustHostToolName {
+		return formatTelegramTrustHostMessage(pending, req)
+	}
 	host := escapeTelegramHTML(req.Host)
 	cmd := escapeTelegramHTML(truncateTelegramCommand(req.Command))
 	shortID := escapeTelegramHTML(telegramShortID(pending.ID))
@@ -68,6 +71,22 @@ func formatTelegramPendingMessage(pending PendingInfo, req ExecuteRemoteRequest)
 		telegramStatusEmoji("PENDING"),
 		host,
 		cmd,
+		shortID,
+		expires,
+	)
+}
+
+func formatTelegramTrustHostMessage(pending PendingInfo, req ExecuteRemoteRequest) string {
+	host := escapeTelegramHTML(req.Host)
+	detail := escapeTelegramHTML(truncateTelegramCommand(req.Command))
+	shortID := escapeTelegramHTML(telegramShortID(pending.ID))
+	expires := escapeTelegramHTML(pending.ExpiresAt.UTC().Format("15:04Z"))
+
+	return fmt.Sprintf(
+		"<b>🌙 Luna</b>  %s <b>TRUST HOST</b>\n\n<code>%s</code>\n<pre>%s</pre>\n\n<code>%s</code> · ⌛ %s",
+		telegramStatusEmoji("PENDING"),
+		host,
+		detail,
 		shortID,
 		expires,
 	)

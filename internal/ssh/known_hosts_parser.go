@@ -4,13 +4,21 @@ import (
 	"bufio"
 	"os"
 	"strings"
+
+	"github.com/ba0f3/lunacli/internal/config"
 )
 
-// ParseKnownHosts reads ~/.ssh/known_hosts and returns host identifiers the user
-// can dial with execute_remote: plain (unhashed) entries from the file, plus SSH
-// config Host aliases whose resolved HostName matches a plain or OpenSSH-hashed
-// (|1|) known_hosts line.
+// ParseKnownHosts reads ~/.ssh/known_hosts and hosts.yml inventory entries with
+// host_key set, returning dialable host identifiers for execute_remote.
 func ParseKnownHosts() ([]string, error) {
+	configDir := ""
+	if settings, err := config.LoadSettings(); err == nil {
+		configDir = settings.ConfigDir()
+	}
+	return parseTrustedHosts(configDir)
+}
+
+func parseTrustedHosts(configDir string) ([]string, error) {
 	path, err := defaultKnownHostsPath()
 	if err != nil {
 		return nil, err
@@ -19,7 +27,7 @@ func ParseKnownHosts() ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return matchKnownHostsFromSSHConfig(path, nil)
+			return discoverKnownHostNames(configDir, path, nil)
 		}
 		return nil, err
 	}
@@ -40,11 +48,7 @@ func ParseKnownHosts() ([]string, error) {
 	for h := range hostSet {
 		plain = append(plain, h)
 	}
-	return discoverKnownHostNames(path, plain)
-}
-
-func matchKnownHostsFromSSHConfig(khPath string, plain []string) ([]string, error) {
-	return discoverKnownHostNames(khPath, plain)
+	return discoverKnownHostNames(configDir, path, plain)
 }
 
 func parsePlainKnownHostsLine(line string) []string {

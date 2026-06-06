@@ -102,9 +102,9 @@ func sshConfigCandidatesForDialHost(dialHost, port string) []sshHostCandidate {
 	return out
 }
 
-// HasKnownHostEntryForTarget reports whether khPath contains a key for any
-// known_hosts lookup name associated with alias@dialHost:port.
-func HasKnownHostEntryForTarget(khPath, alias, dialHost, port string) (bool, error) {
+// HasKnownHostEntryForTarget reports whether khPath or hosts.yml contains a trusted
+// key for any lookup name associated with alias@dialHost:port.
+func HasKnownHostEntryForTarget(configDir, khPath, alias, dialHost, port string) (bool, error) {
 	for _, host := range knownHostsLookupCandidates(alias, dialHost, port) {
 		ok, err := HasKnownHostEntry(khPath, host, port)
 		if err != nil {
@@ -114,12 +114,12 @@ func HasKnownHostEntryForTarget(khPath, alias, dialHost, port string) (bool, err
 			return true, nil
 		}
 	}
-	return false, nil
+	return inventoryHasTrustedKey(configDir, alias, dialHost, port)
 }
 
-// HostKeyAlgorithmsForTarget returns pinned host-key algorithms for the first
-// matching known_hosts lookup name associated with alias@dialHost:port.
-func HostKeyAlgorithmsForTarget(khPath, alias, dialHost, port string) ([]string, error) {
+// HostKeyAlgorithmsForTarget returns pinned host-key algorithms from ~/.ssh/known_hosts
+// or, as a fallback, hosts.yml for alias@dialHost:port.
+func HostKeyAlgorithmsForTarget(configDir, khPath, alias, dialHost, port string) ([]string, error) {
 	for _, host := range knownHostsLookupCandidates(alias, dialHost, port) {
 		algos, err := HostKeyAlgorithmsForKnownHost(khPath, host, port)
 		if err != nil {
@@ -129,5 +129,5 @@ func HostKeyAlgorithmsForTarget(khPath, alias, dialHost, port string) ([]string,
 			return algos, nil
 		}
 	}
-	return nil, nil
+	return hostKeyAlgorithmsFromInventory(configDir, alias, dialHost, port)
 }

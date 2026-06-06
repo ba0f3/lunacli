@@ -161,7 +161,7 @@ func TestParseKnownHosts_hashedUnderAliasLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ok, err := HasKnownHostEntryForTarget(filepath.Join(sshDir, "known_hosts"), alias, hostName, "22")
+	ok, err := HasKnownHostEntryForTarget("", filepath.Join(sshDir, "known_hosts"), alias, hostName, "22")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestHasKnownHostEntryForTarget_dialByResolvedIPWithAliasHash(t *testing.T) 
 	}
 
 	khPath := filepath.Join(sshDir, "known_hosts")
-	ok, err := HasKnownHostEntryForTarget(khPath, "127.0.0.1", "127.0.0.1", "22")
+	ok, err := HasKnownHostEntryForTarget("", khPath, "127.0.0.1", "127.0.0.1", "22")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestHasKnownHostEntryForTarget_dialByIPWithAliasHash(t *testing.T) {
 	}
 
 	khPath := filepath.Join(sshDir, "known_hosts")
-	ok, err := HasKnownHostEntryForTarget(khPath, hostName, hostName, "22")
+	ok, err := HasKnownHostEntryForTarget("", khPath, hostName, hostName, "22")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestParseKnownHosts_hashedHostKeyAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ok, err := HasKnownHostEntryForTarget(filepath.Join(sshDir, "known_hosts"), alias, hostName, "22")
+	ok, err := HasKnownHostEntryForTarget("", filepath.Join(sshDir, "known_hosts"), alias, hostName, "22")
 	if err != nil || !ok {
 		t.Fatalf("HasKnownHostEntryForTarget() = %v, %v; want true", ok, err)
 	}

@@ -55,48 +55,7 @@ func NewService(store Store, cfg Config) *Service {
 
 // CreatePending inserts a pending approval and records request_created audit.
 func (s *Service) CreatePending(tool string, req ExecuteRemoteRequest, body []byte, fingerprint, class, reason string) (PendingInfo, error) {
-	if s.cfg.TTL <= 0 {
-		return PendingInfo{}, fmt.Errorf("approval TTL must be positive")
-	}
-	id := uuid.NewString()
-	now := s.now().UTC()
-	expires := now.Add(s.cfg.TTL)
-
-	bodyCopy := append([]byte(nil), body...)
-	rec := Record{
-		ID:               id,
-		Tool:             tool,
-		Host:             req.Host,
-		RedactedCommand:  req.Command,
-		NormalizedBody:   bodyCopy,
-		Classification:   class,
-		Reason:           reason,
-		Fingerprint:      fingerprint,
-		ExactBinding:     s.exactBinding(req),
-		Status:           StatusPending,
-		CreatedAt:        now,
-		ExpiresAt:        expires,
-		Approver:         "",
-		RedactionVersion: RedactionVersion,
-	}
-	if err := s.store.InsertPending(rec); err != nil {
-		return PendingInfo{}, err
-	}
-	detail := fmt.Sprintf(`{"tool":%q,"fingerprint_prefix":%q}`, tool, FingerprintPrefix(fingerprint))
-	if err := s.store.AppendAudit(AuditEvent{
-		ApprovalID: id,
-		EventType:  "request_created",
-		Detail:     detail,
-		CreatedAt:  now,
-	}); err != nil {
-		return PendingInfo{}, err
-	}
-	return PendingInfo{
-		ID:                id,
-		Fingerprint:       fingerprint,
-		FingerprintPrefix: FingerprintPrefix(fingerprint),
-		ExpiresAt:         expires,
-	}, nil
+	return s.createPending(tool, req.Host, req.Command, body, fingerprint, class, reason, s.exactBinding(req))
 }
 
 // Approve transitions pending → approved. Expired pendings become expired and return ErrExpired.
@@ -263,9 +222,57 @@ func (s *Service) exactBinding(req ExecuteRemoteRequest) string {
 	}{
 		Tool: req.Tool, Host: req.Host, Command: command, TimeoutSec: req.TimeoutSec,
 	})
+	return s.bindingMAC(body)
+}
+
+func (s *Service) bindingMAC(body []byte) string {
 	mac := hmac.New(sha256.New, s.bindingKey)
 	_, _ = mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Service) createPending(tool, host, summary string, body []byte, fingerprint, class, reason, exactBinding string) (PendingInfo, error) {
+	if s.cfg.TTL <= 0 {
+		return PendingInfo{}, fmt.Errorf("approval TTL must be positive")
+	}
+	id := uuid.NewString()
+	now := s.now().UTC()
+	expires := now.Add(s.cfg.TTL)
+
+	bodyCopy := append([]byte(nil), body...)
+	rec := Record{
+		ID:               id,
+		Tool:             tool,
+		Host:             host,
+		RedactedCommand:  summary,
+		NormalizedBody:   bodyCopy,
+		Classification:   class,
+		Reason:           reason,
+		Fingerprint:      fingerprint,
+		ExactBinding:     exactBinding,
+		Status:           StatusPending,
+		CreatedAt:        now,
+		ExpiresAt:        expires,
+		RedactionVersion: RedactionVersion,
+	}
+	if err := s.store.InsertPending(rec); err != nil {
+		return PendingInfo{}, err
+	}
+	detail := fmt.Sprintf(`{"tool":%q,"fingerprint_prefix":%q}`, tool, FingerprintPrefix(fingerprint))
+	if err := s.store.AppendAudit(AuditEvent{
+		ApprovalID: id,
+		EventType:  "request_created",
+		Detail:     detail,
+		CreatedAt:  now,
+	}); err != nil {
+		return PendingInfo{}, err
+	}
+	return PendingInfo{
+		ID:                id,
+		Fingerprint:       fingerprint,
+		FingerprintPrefix: FingerprintPrefix(fingerprint),
+		ExpiresAt:         expires,
+	}, nil
 }
 
 // ExpireDue marks overdue pending approvals as expired (decided_at = now).
