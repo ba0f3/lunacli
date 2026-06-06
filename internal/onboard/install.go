@@ -48,16 +48,81 @@ func WriteFile(mode WriteMode, path string, data []byte, perm os.FileMode) (bool
 }
 
 func WriteConfigJSON(path string, mode WriteMode, fs config.FileSettings) (bool, error) {
+	if mode == WriteMerge {
+		if existing, ok, err := ReadConfigJSON(path); err != nil {
+			return false, fmt.Errorf("read config %s: %w", path, err)
+		} else if ok {
+			fs = OverlayFileSettings(existing, fs)
+		}
+	}
+
 	data, err := json.MarshalIndent(fs, "", "  ")
 	if err != nil {
 		return false, fmt.Errorf("marshal config: %w", err)
 	}
 	data = append(data, '\n')
-	wrote, err := WriteFile(mode, path, data, 0644)
-	if err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		return false, fmt.Errorf("write config %s: %w", path, err)
 	}
-	return wrote, nil
+	return true, nil
+}
+
+// ReadConfigJSON loads settings from path. The bool is true when the file existed.
+func ReadConfigJSON(path string) (config.FileSettings, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return config.FileSettings{}, false, nil
+		}
+		return config.FileSettings{}, false, err
+	}
+	var fs config.FileSettings
+	if err := json.Unmarshal(data, &fs); err != nil {
+		return config.FileSettings{}, true, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	return fs, true, nil
+}
+
+// OverlayFileSettings copies non-empty fields from updates onto base.
+func OverlayFileSettings(base, updates config.FileSettings) config.FileSettings {
+	out := base
+	if updates.ConfigDir != "" {
+		out.ConfigDir = updates.ConfigDir
+	}
+	if updates.Approval.TTL != "" {
+		out.Approval.TTL = updates.Approval.TTL
+	}
+	if updates.Telegram.BotToken != "" {
+		out.Telegram.BotToken = updates.Telegram.BotToken
+	}
+	if updates.Telegram.BotTokenFile != "" {
+		out.Telegram.BotTokenFile = updates.Telegram.BotTokenFile
+	}
+	if updates.Telegram.ApproverUserID != "" {
+		out.Telegram.ApproverUserID = updates.Telegram.ApproverUserID
+	}
+	if updates.Telegram.ChatID != "" {
+		out.Telegram.ChatID = updates.Telegram.ChatID
+	}
+	if updates.Audit.File != "" {
+		out.Audit.File = updates.Audit.File
+	}
+	if updates.Transport.Mode != "" {
+		out.Transport.Mode = updates.Transport.Mode
+	}
+	if updates.Transport.Proxy.Endpoint != "" {
+		out.Transport.Proxy.Endpoint = updates.Transport.Proxy.Endpoint
+	}
+	if updates.Transport.Proxy.TLSCert != "" {
+		out.Transport.Proxy.TLSCert = updates.Transport.Proxy.TLSCert
+	}
+	if updates.Transport.Proxy.TLSKey != "" {
+		out.Transport.Proxy.TLSKey = updates.Transport.Proxy.TLSKey
+	}
+	if updates.Transport.Proxy.TLSCA != "" {
+		out.Transport.Proxy.TLSCA = updates.Transport.Proxy.TLSCA
+	}
+	return out
 }
 
 // InstallBundle writes embedded policy files into layout.PolicyDir honoring write mode.

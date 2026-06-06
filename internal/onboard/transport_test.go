@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/ba0f3/lunacli/internal/config"
 )
 
 func TestValidateProxyEndpoint(t *testing.T) {
@@ -29,11 +31,11 @@ func TestValidateProxyEndpoint(t *testing.T) {
 }
 
 func TestPromptTransport_proxyDefaultsTLS(t *testing.T) {
-	in := strings.NewReader("\nhttps://proxy.example:8443\n\n\n\n")
+	in := strings.NewReader("\nhttps://proxy.example:8443\n2\n")
 	var out, errOut bytes.Buffer
 	p := NewPrompter(in, &out)
 
-	ts, err := PromptTransport(p, &out, &errOut)
+	ts, err := PromptTransport(p, &out, &errOut, config.TransportSettings{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,9 +45,6 @@ func TestPromptTransport_proxyDefaultsTLS(t *testing.T) {
 	if ts.Proxy.Endpoint != "https://proxy.example:8443" {
 		t.Fatalf("Endpoint = %q", ts.Proxy.Endpoint)
 	}
-	if ts.Proxy.TLSCert != "" || ts.Proxy.TLSKey != "" || ts.Proxy.TLSCA != "" {
-		t.Fatalf("expected empty TLS paths for defaults, got %+v", ts.Proxy)
-	}
 }
 
 func TestPromptTransport_directMode(t *testing.T) {
@@ -53,7 +52,7 @@ func TestPromptTransport_directMode(t *testing.T) {
 	var out, errOut bytes.Buffer
 	p := NewPrompter(in, &out)
 
-	ts, err := PromptTransport(p, &out, &errOut)
+	ts, err := PromptTransport(p, &out, &errOut, config.TransportSettings{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

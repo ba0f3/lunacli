@@ -27,4 +27,6 @@ fuzz-crashes/
 .env.local
 .antigravitycli/
 
-.luna.d/
+luna.d/
+luna.config.json
+telegram-bot-token

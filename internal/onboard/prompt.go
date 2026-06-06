@@ -51,3 +51,25 @@ func (p *Prompter) Line(prompt string) (string, error) {
 	line, err := p.in.ReadString('\n')
 	return strings.TrimSpace(line), err
 }
+
+// LineOrKeep prompts for a value; empty input keeps current when current is set.
+func (p *Prompter) LineOrKeep(label, current string) (string, error) {
+	if strings.TrimSpace(current) != "" {
+		if err := writef(p.out, "  current: %s\n", current); err != nil {
+			return "", err
+		}
+		val, err := p.Line(formatKeepSkip(label))
+		if err != nil {
+			return "", err
+		}
+		if val == "" {
+			return current, nil
+		}
+		return val, nil
+	}
+	val, err := p.Line(label + ": ")
+	if err != nil {
+		return "", err
+	}
+	return val, nil
+}

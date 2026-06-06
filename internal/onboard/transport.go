@@ -9,13 +9,46 @@ import (
 	"github.com/ba0f3/lunacli/internal/config"
 )
 
-func PromptTransport(p *Prompter, out, errOut io.Writer) (config.TransportSettings, error) {
+func PromptTransport(p *Prompter, out, errOut io.Writer, existing config.TransportSettings, allowKeep bool) (config.TransportSettings, error) {
 	if err := writeBlank(out); err != nil {
 		return config.TransportSettings{}, err
 	}
 	if err := writeln(out, "SSH transport (how lunacli authenticates to remote hosts):"); err != nil {
 		return config.TransportSettings{}, err
 	}
+
+	if allowKeep && transportConfigured(existing) {
+		if err := writef(out, "  current transport.mode: %s\n", displayTransportMode(existing.Mode)); err != nil {
+			return config.TransportSettings{}, err
+		}
+		if existing.Mode == "" || existing.Mode == "proxy" {
+			if err := writef(out, "  current transport.proxy.endpoint: %s\n", existing.Proxy.Endpoint); err != nil {
+				return config.TransportSettings{}, err
+			}
+		}
+		keep, err := promptKeepOrUpdate(p, "Transport settings")
+		if err != nil {
+			return config.TransportSettings{}, err
+		}
+		if keep {
+			if err := writef(out, "Keeping transport settings.\n"); err != nil {
+				return config.TransportSettings{}, err
+			}
+			return existing, nil
+		}
+	} else if allowKeep {
+		if err := writef(out, "  current transport.mode: %s\n", displayTransportMode(existing.Mode)); err != nil {
+			return config.TransportSettings{}, err
+		}
+		endpoint := existing.Proxy.Endpoint
+		if endpoint == "" {
+			endpoint = "(not set)"
+		}
+		if err := writef(out, "  current transport.proxy.endpoint: %s\n", endpoint); err != nil {
+			return config.TransportSettings{}, err
+		}
+	}
+
 	if err := writeln(out, "  proxy — luna-proxy signs SSH credentials after access approval (recommended)"); err != nil {
 		return config.TransportSettings{}, err
 	}
@@ -23,10 +56,14 @@ func PromptTransport(p *Prompter, out, errOut io.Writer) (config.TransportSettin
 		return config.TransportSettings{}, err
 	}
 
+	defaultMode := 0
+	if allowKeep && existing.Mode == "direct" {
+		defaultMode = 1
+	}
 	modeIdx, err := p.Choice("Transport mode", []string{
 		"Proxy signing via luna-proxy (recommended)",
 		"Direct ssh-agent / disk keys (not recommended)",
-	}, 0)
+	}, defaultMode)
 	if err != nil {
 		return config.TransportSettings{}, err
 	}
@@ -37,7 +74,7 @@ func PromptTransport(p *Prompter, out, errOut io.Writer) (config.TransportSettin
 		return config.TransportSettings{Mode: "direct"}, nil
 	}
 
-	endpoint, err := p.Line("luna-proxy HTTPS endpoint (e.g. https://proxy.example:8443): ")
+	endpoint, err := p.LineOrKeep("luna-proxy HTTPS endpoint (e.g. https://proxy.example:8443)", existing.Proxy.Endpoint)
 	if err != nil {
 		return config.TransportSettings{}, err
 	}
@@ -45,40 +82,14 @@ func PromptTransport(p *Prompter, out, errOut io.Writer) (config.TransportSettin
 		return config.TransportSettings{}, err
 	}
 
-	if err := writeBlank(out); err != nil {
-		return config.TransportSettings{}, err
-	}
-	for _, line := range []string{
-		"mTLS client material (for luna-proxy):",
-		"  Default: ~/.config/luna/certs/client.crt, client.key, ca.crt",
-		"  Override below or set transport.proxy.tls_* in luna.config.json later.",
-	} {
-		if err := writeln(out, line); err != nil {
-			return config.TransportSettings{}, err
-		}
-	}
-
-	cert, err := p.Line("Client cert path [default]: ")
-	if err != nil {
-		return config.TransportSettings{}, err
-	}
-	key, err := p.Line("Client key path [default]: ")
-	if err != nil {
-		return config.TransportSettings{}, err
-	}
-	ca, err := p.Line("CA cert path [default]: ")
+	tls, err := promptMTLSMaterial(p, out, errOut, endpoint, existing.Proxy, allowKeep)
 	if err != nil {
 		return config.TransportSettings{}, err
 	}
 
 	return config.TransportSettings{
-		Mode: "proxy",
-		Proxy: config.ProxyTransportSettings{
-			Endpoint: endpoint,
-			TLSCert:  strings.TrimSpace(cert),
-			TLSKey:   strings.TrimSpace(key),
-			TLSCA:    strings.TrimSpace(ca),
-		},
+		Mode:  "proxy",
+		Proxy: tls,
 	}, nil
 }
 

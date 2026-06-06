@@ -30,6 +30,19 @@ func SaveBotToken(path, token string) error {
 	return nil
 }
 
+// ReadBotToken loads a trimmed bot token from a token file.
+func ReadBotToken(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read bot token file %s: %w", path, err)
+	}
+	token := strings.TrimSpace(string(raw))
+	if token == "" {
+		return "", fmt.Errorf("bot token file %q is empty", path)
+	}
+	return token, nil
+}
+
 // DiscoverApprover polls getUpdates for a user message (e.g. /start).
 // apiBaseFmt is like "https://api.telegram.org/bot%s/" (trailing slash optional).
 func DiscoverApprover(ctx context.Context, token string, client *http.Client, apiBaseFmt string) (approverID, chatID string, err error) {
