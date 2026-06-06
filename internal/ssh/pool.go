@@ -2,17 +2,18 @@ package ssh
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/user"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ba0f3/lunacli/internal/config"
 	"github.com/kevinburke/ssh_config"
 	gossh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -32,6 +33,7 @@ type ExecResult struct {
 type Pool struct {
 	mu      sync.Mutex
 	clients map[string]*gossh.Client
+	auth    AuthProvider
 }
 
 // sharedAgent holds one ssh-agent connection for the process. Agent-backed
@@ -104,11 +106,29 @@ func closeSharedAgent() {
 	sharedAgent.sock = ""
 }
 
-// NewPool creates a new SSH connection pool.
-func NewPool() *Pool {
+// NewPool creates a new SSH connection pool with direct (legacy) auth when cfg is nil.
+func NewPool(cfg *config.Settings) (*Pool, error) {
+	auth, err := NewAuthProvider(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg != nil {
+		log.Printf("[SSH] transport.mode=%s", cfg.TransportMode())
+	}
 	return &Pool{
 		clients: make(map[string]*gossh.Client),
-	}
+		auth:    auth,
+	}, nil
+}
+
+func (p *Pool) signersFor(ctx context.Context, target string) ([]gossh.Signer, error) {
+	t := TargetFromString(target)
+	return p.auth.SignersFor(ctx, t)
+}
+
+// SignersForTarget returns SSH signers for target (used by ssh-debug).
+func (p *Pool) SignersForTarget(ctx context.Context, target string) ([]gossh.Signer, error) {
+	return p.signersFor(ctx, target)
 }
 
 // parseTarget splits a target string like user@host:port into its components.
@@ -232,7 +252,7 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 	username, host, port := parseTarget(target)
 	addr := net.JoinHostPort(host, port)
 
-	signers, err := collectAuthSigners(host)
+	signers, err := p.signersFor(context.Background(), target)
 	if err != nil {
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
@@ -318,84 +338,6 @@ func (p *Pool) Close() {
 	closeSharedAgent()
 }
 
-// expandIdentityFilePath expands ~/.ssh/foo and optional double-quotes from ssh_config.
-func expandIdentityFilePath(raw string) string {
-	p := strings.TrimSpace(raw)
-	if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
-		p = p[1 : len(p)-1]
-	}
-	if p == "" || p == "/dev/null" {
-		return ""
-	}
-	if strings.HasPrefix(p, "~/") {
-		p = filepath.Join(mustHome(), p[2:])
-	} else if p == "~" {
-		p = mustHome()
-	}
-	return os.ExpandEnv(p)
-}
-
-// collectAuthSigners returns distinct signers for host. Order matters: ssh-agent
-// keys first (common with Bitwarden/1Password agents), then ssh_config IdentityFile
-// entries, then default ~/.ssh/id_* files. Putting many disk keys before the agent
-// can exhaust the server's MaxAuthTries before an agent-only identity is tried.
-func collectAuthSigners(host string) ([]gossh.Signer, error) {
-	host = strings.TrimSpace(host)
-	var out []gossh.Signer
-	seen := make(map[string]struct{})
-
-	add := func(s gossh.Signer) {
-		if s == nil {
-			return
-		}
-		k := string(s.PublicKey().Marshal())
-		if _, dup := seen[k]; dup {
-			return
-		}
-		seen[k] = struct{}{}
-		out = append(out, s)
-	}
-
-	ag, _ := sharedAgentSigners()
-	for _, s := range ag {
-		add(s)
-	}
-
-	if host != "" {
-		idFiles := ssh_config.GetAll(host, "IdentityFile")
-		certFiles := ssh_config.GetAll(host, "CertificateFile")
-		for i, raw := range idFiles {
-			path := expandIdentityFilePath(raw)
-			if path == "" {
-				continue
-			}
-			st, err := os.Stat(path)
-			if err != nil || st.IsDir() {
-				continue
-			}
-			if signer, err := loadPrivateKey(path); err == nil {
-				optCert := ""
-				if i < len(certFiles) {
-					optCert = expandIdentityFilePath(certFiles[i])
-				}
-				add(tryWrapWithCertificate(path, optCert, signer))
-			}
-		}
-	}
-
-	for _, name := range []string{"id_ed25519", "id_rsa", "id_ecdsa"} {
-		path := filepath.Join(mustHome(), ".ssh", name)
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		if signer, err := loadPrivateKey(path); err == nil {
-			add(tryWrapWithCertificate(path, "", signer))
-		}
-	}
-
-	return out, nil
-}
-
 // AuthSignerCount returns how many distinct public keys would be offered for host
 // (for diagnostics). It performs the same collection as DialAuthMethods.
 func AuthSignerCount(host string) (int, error) {
@@ -419,10 +361,10 @@ func authMethodsFromSigners(host string, signers []gossh.Signer) ([]gossh.AuthMe
 	if len(signers) == 0 {
 		return nil, fmt.Errorf("no SSH auth methods available (no agent, no default keys)")
 	}
-	merged := func() ([]gossh.Signer, error) {
-		return collectAuthSigners(host)
-	}
-	return []gossh.AuthMethod{gossh.PublicKeysCallback(merged)}, nil
+	fixed := signers
+	return []gossh.AuthMethod{gossh.PublicKeysCallback(func() ([]gossh.Signer, error) {
+		return fixed, nil
+	})}, nil
 }
 
 func logSSHAuthDialPrep(target, username, addr string, signers []gossh.Signer) {
@@ -465,10 +407,15 @@ func signerKeySummaries(signers []gossh.Signer) string {
 	return b.String()
 }
 
-// DialAuthMethods returns the same SSH client auth methods as the connection pool.
+// DialAuthMethods returns SSH client auth methods using direct-mode key collection.
 // Pass the ssh Host alias or hostname used for IdentityFile lookups (same as DialTarget host).
 func DialAuthMethods(host string) ([]gossh.AuthMethod, error) {
 	return buildAuthMethods(host)
+}
+
+// AuthMethodsFromSigners builds auth methods from pre-resolved signers (same as the pool uses).
+func AuthMethodsFromSigners(host string, signers []gossh.Signer) ([]gossh.AuthMethod, error) {
+	return authMethodsFromSigners(host, signers)
 }
 
 // loadPrivateKey reads and parses a PEM-encoded private key file.

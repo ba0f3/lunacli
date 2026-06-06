@@ -53,6 +53,7 @@ make fuzz     # Fuzz command classification in internal/security/
 ```
 
 ## NOTES
+- Default SSH transport is **proxy signing** (`internal/ssh/auth_proxy.go` + `github.com/ba0f3/luna-ztrust/sdk`); lunacli dials targets directly.
 - `internal/security/allowlist.go` and `internal/engine/engine.go` both classify commands. `engine` is the newer layer that respects policy YAML; `security` is the legacy allowlist still used as fallback.
 - Audit logs go to stderr as JSON and optionally to a file.
 - The `approval` package is the largest and most complex — has its own AGENTS.md.

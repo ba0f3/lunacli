@@ -172,13 +172,37 @@ Agent                     luna serve                    Human
   │◄── { stdout, exit code } │                            │
 ```
 
-### SSH Authentication
+### SSH transport and authentication
 
-Authentication order (all sources):
+By default (`transport.mode: proxy`), lunacli obtains **signed SSH credentials** from **luna-proxy** via in-process **luna-sdk** (mTLS). The proxy runs **access approval** on its own Telegram; lunacli still **dials targets directly** over TCP/SSH (the proxy does not relay SSH).
 
-1. **`SSH_AUTH_SOCK`** agent (Bitwarden, 1Password, ssh‑agent)
-2. **`~/.ssh/config`** `IdentityFile` entries for the target host
-3. **Default keys** (`id_ed25519`, `id_rsa`, `id_ecdsa`)
+Mutating **commands** still require lunacli **command approval** (Telegram in `luna.config.json`) — two separate human gates.
+
+```text
+MCP agent → luna serve → luna-proxy (sign)     access Telegram (proxy)
+                      ↘ target host (SSH dial)   command Telegram (lunacli)
+```
+
+| `transport.mode` | Connect path | Credentials |
+|------------------|--------------|-------------|
+| `proxy` (default) | lunacli → target | Proxy-signed cert via SDK |
+| `direct` | lunacli → target | ssh-agent / disk keys (not recommended) |
+| `luna-agent` | lunacli → target | `SSH_AUTH_SOCK` → luna-agent (not recommended) |
+
+Example `luna.config.json`:
+
+```json
+{
+  "transport": {
+    "mode": "proxy",
+    "proxy": {
+      "endpoint": "https://proxy.example:8443"
+    }
+  }
+}
+```
+
+mTLS client material defaults to `~/.config/luna/certs/{client.crt,client.key,ca.crt}` or `LUNA_PROXY_TLS_*` / `transport.proxy.tls_*`.
 
 Known‑hosts verification respects `StrictHostKeyChecking` (`no`, `accept-new`, `ask`).
 

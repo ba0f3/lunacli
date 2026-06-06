@@ -8,7 +8,7 @@ For interceptor configuration (approval store, Telegram, CLI fallback), see [`do
 
 - **goclaw** and **`luna-interceptor`** run on the **same machine**.
 - They communicate over **stdio only** (MCP JSON-RPC on the interceptor’s stdin/stdout). The interceptor must **not** expose a public HTTP API for tool execution.
-- The interceptor talks to **remote Linux hosts** over SSH/SFTP using its own process identity and SSH configuration.
+- The interceptor talks to **remote Linux hosts** over SSH/SFTP using its own process identity. With default `transport.mode: proxy`, credentials come from **luna-proxy signing** (in-process luna-sdk); lunacli still **dials hosts directly** — the proxy does not carry SSH traffic. Signed keys stay in the interceptor process, not in the goclaw client.
 
 ```text
 goclaw process

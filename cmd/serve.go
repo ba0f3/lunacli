@@ -33,8 +33,15 @@ var serveCmd = &cobra.Command{
 			log.Fatalf("failed to load policy.yml (required): %v", err)
 		}
 
+		if err := settings.ValidateTransport(); err != nil {
+			log.Fatalf("config: %v", err)
+		}
+
 		eng := engine.NewEngine(pol)
-		pool := ssh.NewPool()
+		pool, err := ssh.NewPool(settings)
+		if err != nil {
+			log.Fatalf("ssh: %v", err)
+		}
 
 		boot, err := approval.BootstrapServeApproval(settings)
 		if err != nil {

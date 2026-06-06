@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ba0f3/lunacli/internal/config"
 	apssh "github.com/ba0f3/lunacli/internal/ssh"
 	"github.com/kevinburke/ssh_config"
 	gossh "golang.org/x/crypto/ssh"
@@ -41,6 +43,22 @@ func main() {
 
 	fmt.Printf("--- SSH Debug Tool ---\n")
 	fmt.Printf("Target: %s\n", target)
+
+	settings, err := config.LoadSettings()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	if err := settings.ValidateTransport(); err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	pool, err := apssh.NewPool(settings)
+	if err != nil {
+		log.Fatalf("ssh: %v", err)
+	}
+	fmt.Printf("transport.mode: %s\n", settings.TransportMode())
+	if ep := settings.ProxyEndpoint(); ep != "" {
+		fmt.Printf("transport.proxy.endpoint: %s\n", ep)
+	}
 
 	sshUser, host, port := apssh.DialTarget(target)
 	if !strings.Contains(target, "@") {
@@ -102,16 +120,18 @@ func main() {
 	addr := net.JoinHostPort(host, port)
 	fmt.Printf("\nDialing %s as %q...\n", addr, sshUser)
 
-	authMethods, authErr := apssh.DialAuthMethods(host)
+	signers, authErr := pool.SignersForTarget(context.Background(), target)
 	if authErr != nil {
-		log.Fatalf("SSH auth: %v (export SSH_AUTH_SOCK or add keys under ~/.ssh)", authErr)
+		log.Fatalf("SSH auth: %v", authErr)
+	}
+	authMethods, authErr := apssh.AuthMethodsFromSigners(host, signers)
+	if authErr != nil {
+		log.Fatalf("SSH auth: %v", authErr)
 	}
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		fmt.Printf("SSH_AUTH_SOCK: %q\n", sock)
 	}
-	if n, err := apssh.AuthSignerCount(host); err == nil {
-		fmt.Printf("SSH public-key candidates (agent, then IdentityFile, then id_*): %d\n", n)
-	}
+	fmt.Printf("SSH public-key candidates: %d\n", len(signers))
 
 	config := &gossh.ClientConfig{
 		User:            sshUser,

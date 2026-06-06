@@ -22,10 +22,23 @@ const (
 
 // FileSettings is the JSON configuration schema (all fields optional).
 type FileSettings struct {
-	ConfigDir string           `json:"config_dir"`
-	Approval  ApprovalSettings `json:"approval"`
-	Telegram  TelegramSettings `json:"telegram"`
-	Audit     AuditSettings    `json:"audit"`
+	ConfigDir string             `json:"config_dir"`
+	Approval  ApprovalSettings   `json:"approval"`
+	Telegram  TelegramSettings   `json:"telegram"`
+	Audit     AuditSettings      `json:"audit"`
+	Transport TransportSettings    `json:"transport"`
+}
+
+type TransportSettings struct {
+	Mode  string                 `json:"mode"`
+	Proxy ProxyTransportSettings `json:"proxy"`
+}
+
+type ProxyTransportSettings struct {
+	Endpoint string `json:"endpoint"`
+	TLSCert  string `json:"tls_cert"`
+	TLSKey   string `json:"tls_key"`
+	TLSCA    string `json:"tls_ca"`
 }
 
 type ApprovalSettings struct {
@@ -147,6 +160,95 @@ func mergeFileSettings(dst, src *FileSettings) {
 	if src.Audit.File != "" {
 		dst.Audit.File = src.Audit.File
 	}
+	if src.Transport.Mode != "" {
+		dst.Transport.Mode = src.Transport.Mode
+	}
+	if src.Transport.Proxy.Endpoint != "" {
+		dst.Transport.Proxy.Endpoint = src.Transport.Proxy.Endpoint
+	}
+	if src.Transport.Proxy.TLSCert != "" {
+		dst.Transport.Proxy.TLSCert = src.Transport.Proxy.TLSCert
+	}
+	if src.Transport.Proxy.TLSKey != "" {
+		dst.Transport.Proxy.TLSKey = src.Transport.Proxy.TLSKey
+	}
+	if src.Transport.Proxy.TLSCA != "" {
+		dst.Transport.Proxy.TLSCA = src.Transport.Proxy.TLSCA
+	}
+}
+
+// TransportMode returns SSH credential transport mode (default proxy).
+func (s *Settings) TransportMode() string {
+	m := envFirst("LUNA_TRANSPORT_MODE", s.file.Transport.Mode)
+	if m == "" {
+		return "proxy"
+	}
+	return m
+}
+
+// ProxyEndpoint returns luna-proxy HTTPS base URL for signing.
+func (s *Settings) ProxyEndpoint() string {
+	return envFirst("LUNA_PROXY_ENDPOINT", s.file.Transport.Proxy.Endpoint)
+}
+
+func (s *Settings) proxyTLSCert() string {
+	return expandPath(envFirst("LUNA_PROXY_TLS_CERT", s.file.Transport.Proxy.TLSCert))
+}
+
+func (s *Settings) proxyTLSKey() string {
+	return expandPath(envFirst("LUNA_PROXY_TLS_KEY", s.file.Transport.Proxy.TLSKey))
+}
+
+func (s *Settings) proxyTLSCA() string {
+	return expandPath(envFirst("LUNA_PROXY_TLS_CA", s.file.Transport.Proxy.TLSCA))
+}
+
+// ProxyTLSPaths resolves mTLS client material (defaults under ~/.config/luna/certs).
+func (s *Settings) ProxyTLSPaths() (cert, key, ca string) {
+	cert = s.proxyTLSCert()
+	key = s.proxyTLSKey()
+	ca = s.proxyTLSCA()
+	if cert != "" && key != "" && ca != "" {
+		return cert, key, ca
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		dir := filepath.Join(home, ".config", "luna", "certs")
+		if cert == "" {
+			cert = filepath.Join(dir, "client.crt")
+		}
+		if key == "" {
+			key = filepath.Join(dir, "client.key")
+		}
+		if ca == "" {
+			ca = filepath.Join(dir, "ca.crt")
+		}
+	}
+	return cert, key, ca
+}
+
+// ValidateTransport checks transport settings for remote entrypoints.
+func (s *Settings) ValidateTransport() error {
+	switch s.TransportMode() {
+	case "proxy":
+		if s.ProxyEndpoint() == "" {
+			return errors.New("transport.mode proxy requires transport.proxy.endpoint or LUNA_PROXY_ENDPOINT")
+		}
+		cert, key, ca := s.ProxyTLSPaths()
+		for _, p := range []struct{ name, path string }{
+			{"tls_cert", cert},
+			{"tls_key", key},
+			{"tls_ca", ca},
+		} {
+			if _, err := os.Stat(p.path); err != nil {
+				return fmt.Errorf("transport.proxy %s %q: %w (set transport.proxy.* or LUNA_PROXY_TLS_* env)", p.name, p.path, err)
+			}
+		}
+	case "direct", "luna-agent":
+		// no extra validation
+	default:
+		return fmt.Errorf("unknown transport.mode %q", s.TransportMode())
+	}
+	return nil
 }
 
 func envFirst(envKey, fileVal string) string {
