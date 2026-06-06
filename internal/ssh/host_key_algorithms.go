@@ -16,6 +16,16 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// HasKnownHostEntry reports whether khPath contains a host key line for host:port,
+// including OpenSSH-hashed |1| entries.
+func HasKnownHostEntry(khPath, host, port string) (bool, error) {
+	algos, err := HostKeyAlgorithmsForKnownHost(khPath, host, port)
+	if err != nil {
+		return false, err
+	}
+	return len(algos) > 0, nil
+}
+
 // HostKeyAlgorithmsForKnownHost returns ssh.ClientConfig.HostKeyAlgorithms values
 // derived from ~/.ssh/known_hosts lines that apply to host:port. When non-empty,
 // the client negotiates those types first so the server picks a host key that

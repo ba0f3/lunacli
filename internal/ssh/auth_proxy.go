@@ -1,8 +1,7 @@
 // Proxy signing (no SSH relay):
 //
-//	client, err := sdk.NewClient(sdk.Config{ProxyURL: endpoint, TLSCert, TLSRootCAs, ...})
-//	cert, priv, err := client.RequestCertificate(ctx, sdk.CertRequest{TargetUser, TargetIP, Client})
-//	signer, err := sdk.NewCertSigner(cert, priv)
+// local-ca: RequestCertificate → NewCertSigner
+// local-key: hosted proxy key + RequestSignature(agent_sign_data) on SSH auth
 //
 // Map HTTP/sign errors via mapSDKAccessError → access_errors.go.
 package ssh
@@ -11,24 +10,36 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"os/user"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ba0f3/luna-ztrust/sdk"
 	"github.com/ba0f3/lunacli/internal/config"
 	gossh "golang.org/x/crypto/ssh"
 )
 
+const (
+	proxySignerModeLocalCA  = "local-ca"
+	proxySignerModeLocalKey = "local-key"
+	proxySignTimeout        = 90 * time.Second
+)
+
 type proxySignerClient interface {
 	RequestCertificate(ctx context.Context, req sdk.CertRequest) (*gossh.Certificate, ed25519.PrivateKey, error)
+	RequestSignature(ctx context.Context, req sdk.SignatureRequest, signData []byte) (*gossh.Signature, error)
+	FetchCapabilities(ctx context.Context) (sdk.Capabilities, error)
 }
 
 type proxyAuth struct {
-	client proxySignerClient
-	mu     sync.Mutex
-	cache  map[string][]gossh.Signer
+	client     proxySignerClient
+	signerMode string
+	mu         sync.Mutex
+	cache      map[string][]gossh.Signer
 }
 
 func newProxyAuth(cfg *config.Settings) (*proxyAuth, error) {
@@ -45,9 +56,20 @@ func newProxyAuth(cfg *config.Settings) (*proxyAuth, error) {
 	if err != nil {
 		return nil, fmt.Errorf("proxy sdk client: %w", err)
 	}
+	wrapped := &sdkProxyClient{inner: client}
+	caps, err := wrapped.FetchCapabilities(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("proxy capabilities: %w", err)
+	}
+	mode := caps.SignerMode
+	if mode == "" {
+		mode = proxySignerModeLocalCA
+	}
+	log.Printf("[SSH] proxy signer_mode=%s loaded_signers=%d sealed=%v", mode, len(caps.LoadedSigners), caps.Sealed)
 	return &proxyAuth{
-		client: &sdkProxyClient{inner: client},
-		cache:  make(map[string][]gossh.Signer),
+		client:     wrapped,
+		signerMode: mode,
+		cache:      make(map[string][]gossh.Signer),
 	}, nil
 }
 
@@ -57,6 +79,14 @@ type sdkProxyClient struct {
 
 func (c *sdkProxyClient) RequestCertificate(ctx context.Context, req sdk.CertRequest) (*gossh.Certificate, ed25519.PrivateKey, error) {
 	return c.inner.RequestCertificate(ctx, req)
+}
+
+func (c *sdkProxyClient) RequestSignature(ctx context.Context, req sdk.SignatureRequest, signData []byte) (*gossh.Signature, error) {
+	return c.inner.RequestSignature(ctx, req, signData)
+}
+
+func (c *sdkProxyClient) FetchCapabilities(ctx context.Context) (sdk.Capabilities, error) {
+	return c.inner.FetchCapabilities(ctx)
 }
 
 func (p *proxyAuth) SignersFor(ctx context.Context, t Target) ([]gossh.Signer, error) {
@@ -89,18 +119,30 @@ func (p *proxyAuth) signersForTarget(ctx context.Context, t Target) ([]gossh.Sig
 	if err != nil {
 		return nil, fmt.Errorf("resolve target %s: %w", t.Host, err)
 	}
+	clientInfo := proxyClientInfo(t)
+	if p.signerMode == proxySignerModeLocalKey {
+		return p.signersLocalKey(ctx, t, targetIP, clientInfo)
+	}
+	return p.signersLocalCA(ctx, t, targetIP, clientInfo)
+}
+
+func proxyClientInfo(t Target) sdk.ClientInfo {
 	sourceUser := t.User
 	if u, err := user.Current(); err == nil && strings.TrimSpace(u.Username) != "" {
 		sourceUser = u.Username
 	}
+	return sdk.ClientInfo{
+		SourceUser:    sourceUser,
+		ClientName:    "lunacli",
+		ClientVersion: "2.0.0",
+	}
+}
+
+func (p *proxyAuth) signersLocalCA(ctx context.Context, t Target, targetIP string, client sdk.ClientInfo) ([]gossh.Signer, error) {
 	cert, priv, err := p.client.RequestCertificate(ctx, sdk.CertRequest{
 		TargetUser: t.User,
 		TargetIP:   targetIP,
-		Client: sdk.ClientInfo{
-			SourceUser:    sourceUser,
-			ClientName:    "lunacli",
-			ClientVersion: "2.0.0",
-		},
+		Client:     client,
 	})
 	if err != nil {
 		return nil, mapSDKAccessError(err, t)
@@ -110,6 +152,113 @@ func (p *proxyAuth) signersForTarget(ctx context.Context, t Target) ([]gossh.Sig
 		return nil, err
 	}
 	return []gossh.Signer{signer}, nil
+}
+
+func (p *proxyAuth) signersLocalKey(ctx context.Context, t Target, targetIP string, client sdk.ClientInfo) ([]gossh.Signer, error) {
+	caps, err := p.client.FetchCapabilities(ctx)
+	if err != nil {
+		return nil, mapSDKAccessError(fmt.Errorf("GET capabilities: %w", err), t)
+	}
+	fp, pub, err := selectLoadedSigner(caps)
+	if err != nil {
+		return nil, fmt.Errorf("%s", FormatAccessError(t, err))
+	}
+	req := sdk.SignatureRequest{
+		TargetUser:         t.User,
+		TargetIP:           targetIP,
+		HostKeyFingerprint: fp,
+		Client:             client,
+	}
+	return []gossh.Signer{&hostedKeySigner{
+		pub:    pub,
+		client: p.client,
+		req:    req,
+	}}, nil
+}
+
+func selectLoadedSigner(caps sdk.Capabilities) (fingerprint string, pub gossh.PublicKey, err error) {
+	if caps.Sealed {
+		return "", nil, fmt.Errorf("proxy keystore is sealed; on the proxy: luna-proxy key load")
+	}
+	if len(caps.LoadedSigners) == 0 {
+		return "", nil, fmt.Errorf("no signing keys loaded on proxy (use: luna-proxy key load)")
+	}
+	if len(caps.LoadedSigners) == 1 {
+		return loadedSignerKey(caps.LoadedSigners[0])
+	}
+	var lastErr error
+	for _, ls := range caps.LoadedSigners {
+		fp, pub, err := loadedSignerKey(ls)
+		if err == nil {
+			return fp, pub, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return "", nil, lastErr
+	}
+	return "", nil, fmt.Errorf("no usable signing keys in proxy capabilities")
+}
+
+func loadedSignerKey(ls sdk.LoadedSigner) (string, gossh.PublicKey, error) {
+	line := strings.TrimSpace(ls.PublicKey)
+	if line == "" {
+		return "", nil, fmt.Errorf("proxy signer %q missing public_key in capabilities", ls.Fingerprint)
+	}
+	pub, err := parseSSHPublicKeyLine(line)
+	if err != nil {
+		return "", nil, err
+	}
+	fp := normalizeSignerFingerprint(ls.Fingerprint)
+	if fp == "" {
+		fp = sshPublicKeyFingerprint(pub)
+	}
+	return fp, pub, nil
+}
+
+func parseSSHPublicKeyLine(line string) (gossh.PublicKey, error) {
+	pub, _, _, _, err := gossh.ParseAuthorizedKey([]byte(line))
+	if err != nil {
+		pub, err = gossh.ParsePublicKey([]byte(line))
+		if err != nil {
+			return nil, fmt.Errorf("parse hosted public key: %w", err)
+		}
+	}
+	return pub, nil
+}
+
+func normalizeSignerFingerprint(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "SHA256:")
+	return strings.TrimRight(s, "=")
+}
+
+func sshPublicKeyFingerprint(pub gossh.PublicKey) string {
+	return normalizeSignerFingerprint(gossh.FingerprintSHA256(pub))
+}
+
+type hostedKeySigner struct {
+	pub    gossh.PublicKey
+	client proxySignerClient
+	req    sdk.SignatureRequest
+}
+
+func (s *hostedKeySigner) PublicKey() gossh.PublicKey {
+	return s.pub
+}
+
+func (s *hostedKeySigner) Sign(_ io.Reader, data []byte) (*gossh.Signature, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), proxySignTimeout)
+	defer cancel()
+	sig, err := s.client.RequestSignature(ctx, s.req, data)
+	if err != nil {
+		return nil, mapSDKAccessError(err, Target{
+			User: s.req.TargetUser,
+			Host: s.req.TargetIP,
+			Port: "22",
+		})
+	}
+	return sig, nil
 }
 
 func resolveTargetIP(host, port string) (string, error) {
@@ -151,6 +300,8 @@ func mapSDKAccessError(err error, t Target) error {
 		strings.Contains(msg, "denied"),
 		strings.Contains(msg, "rejected"):
 		return fmt.Errorf("%s", FormatAccessError(t, ErrAccessDenied))
+	case strings.Contains(msg, "agent_sign_data"):
+		return fmt.Errorf("%s", FormatAccessError(t, fmt.Errorf("proxy requires local-key signing (signer mode mismatch)")))
 	default:
 		return fmt.Errorf("%s", FormatAccessError(t, err))
 	}

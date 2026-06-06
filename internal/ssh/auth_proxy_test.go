@@ -19,8 +19,9 @@ func TestMapSDKAccessError_DeniedHTTP(t *testing.T) {
 
 func TestProxyAuth_FakeClientDenied(t *testing.T) {
 	p := &proxyAuth{
-		client: &fakeProxyClient{err: fmt.Errorf("GET wait: HTTP 403: rejected")},
-		cache:  make(map[string][]gossh.Signer),
+		client:     &fakeProxyClient{err: fmt.Errorf("GET wait: HTTP 403: rejected")},
+		signerMode: proxySignerModeLocalCA,
+		cache:      make(map[string][]gossh.Signer),
 	}
 	_, err := p.signersForTarget(context.Background(), Target{User: "u", Host: "127.0.0.1", Port: "22"})
 	if err == nil {

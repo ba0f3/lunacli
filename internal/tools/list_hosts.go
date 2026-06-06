@@ -13,7 +13,7 @@ import (
 
 func registerListHosts(s *server.MCPServer) {
 	tool := mcp.NewTool("list_hosts",
-		mcp.WithDescription(`List unhashed hostnames extracted from ~/.ssh/known_hosts.
+		mcp.WithDescription(`List hostnames from ~/.ssh/known_hosts (plain entries and SSH config aliases matching hashed |1| lines).
 Use this before execute_remote to find available hosts.
 Credentials and keys are managed by your local SSH agent.`),
 	)
@@ -25,7 +25,7 @@ Credentials and keys are managed by your local SSH agent.`),
 		}
 
 		if len(hosts) == 0 {
-			return mcp.NewToolResultText("No unhashed hosts found in ~/.ssh/known_hosts."), nil
+			return mcp.NewToolResultText("No hosts found in ~/.ssh/known_hosts (including hashed entries resolvable from ~/.ssh/config)."), nil
 		}
 
 		sort.Strings(hosts)
@@ -38,7 +38,7 @@ Credentials and keys are managed by your local SSH agent.`),
 			fmt.Fprintf(&b, "- %s\n", host)
 		}
 
-		fmt.Fprintf(&b, "\nTotal: %d unhashed host(s)\n", len(hosts))
+		fmt.Fprintf(&b, "\nTotal: %d host(s)\n", len(hosts))
 		return mcp.NewToolResultText(b.String()), nil
 	})
 }

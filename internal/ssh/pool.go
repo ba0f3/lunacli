@@ -250,7 +250,8 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 	}
 
 	username, host, port := parseTarget(target)
-	addr := net.JoinHostPort(host, port)
+	dialHost, dialPort := resolveSSHConfigHost(host, port)
+	addr := net.JoinHostPort(dialHost, dialPort)
 
 	signers, err := p.signersFor(context.Background(), target)
 	if err != nil {
@@ -263,13 +264,13 @@ func (p *Pool) getClient(target string) (*gossh.Client, error) {
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
 
-	khCallback, err := buildKnownHostsCallback(host)
+	khCallback, err := buildKnownHostsCallback(host, dialHost, dialPort)
 	if err != nil {
 		return nil, fmt.Errorf("load known_hosts: %w", err)
 	}
 
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
-	hostKeyAlgos, err := HostKeyAlgorithmsForKnownHost(khPath, host, port)
+	hostKeyAlgos, err := HostKeyAlgorithmsForKnownHost(khPath, dialHost, dialPort)
 	if err != nil {
 		log.Printf("[SSH] known_hosts host-key algorithm scan for %s: %v (using crypto/ssh defaults)", host, err)
 	}
@@ -470,8 +471,9 @@ func tryWrapWithCertificate(privKeyPath, certPathOptional string, signer gossh.S
 
 // buildKnownHostsCallback creates a host key callback from ~/.ssh/known_hosts
 // that respects ~/.ssh/config StrictHostKeyChecking settings (no, accept-new).
-func buildKnownHostsCallback(targetHost string) (gossh.HostKeyCallback, error) {
+func buildKnownHostsCallback(sshAlias, khHost, khPort string) (gossh.HostKeyCallback, error) {
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
+	checkAddr := knownHostsCheckAddress(khHost, khPort)
 
 	var khCallback gossh.HostKeyCallback
 	if _, err := os.Stat(khPath); !os.IsNotExist(err) {
@@ -482,10 +484,11 @@ func buildKnownHostsCallback(targetHost string) (gossh.HostKeyCallback, error) {
 		khCallback = cb
 	}
 
-	return func(hostname string, remote net.Addr, key gossh.PublicKey) error {
+	return func(_ string, remote net.Addr, key gossh.PublicKey) error {
 		var checkErr error
 		if khCallback != nil {
-			checkErr = khCallback(hostname, remote, key)
+			// Match plain and hashed known_hosts entries against the resolved dial target.
+			checkErr = khCallback(checkAddr, remote, key)
 			if checkErr == nil {
 				return nil
 			}
@@ -494,10 +497,10 @@ func buildKnownHostsCallback(targetHost string) (gossh.HostKeyCallback, error) {
 		}
 
 		// Read StrictHostKeyChecking for the target host
-		strict := strings.ToLower(ssh_config.Get(targetHost, "StrictHostKeyChecking"))
+		strict := strings.ToLower(ssh_config.Get(sshAlias, "StrictHostKeyChecking"))
 
 		if strict == "no" || strict == "false" {
-			log.Printf("WARN: bypassing host key check for %s due to StrictHostKeyChecking=%s", targetHost, strict)
+			log.Printf("WARN: bypassing host key check for %s due to StrictHostKeyChecking=%s", sshAlias, strict)
 			return nil
 		}
 
@@ -506,11 +509,11 @@ func buildKnownHostsCallback(targetHost string) (gossh.HostKeyCallback, error) {
 			if errors.As(checkErr, &keyErr) {
 				// If Want is empty, there were NO keys for this host (completely new).
 				if len(keyErr.Want) == 0 {
-					log.Printf("INFO: auto-accepting new host key for %s due to StrictHostKeyChecking=accept-new", targetHost)
+					log.Printf("INFO: auto-accepting new host key for %s due to StrictHostKeyChecking=accept-new", sshAlias)
 					return nil
 				}
 			} else if checkErr.Error() == "known_hosts file not found" {
-				log.Printf("INFO: auto-accepting new host key for %s because known_hosts is missing", targetHost)
+				log.Printf("INFO: auto-accepting new host key for %s because known_hosts is missing", sshAlias)
 				return nil
 			}
 		}
@@ -518,7 +521,7 @@ func buildKnownHostsCallback(targetHost string) (gossh.HostKeyCallback, error) {
 		// Provide a more helpful error message
 		if checkErr != nil {
 			if strict == "ask" || strict == "" {
-				return fmt.Errorf("%w (StrictHostKeyChecking=%s, use 'ssh %s' to accept or set accept-new in config)", checkErr, strict, targetHost)
+				return fmt.Errorf("%w (StrictHostKeyChecking=%s, use 'ssh %s' to accept or set accept-new in config)", checkErr, strict, sshAlias)
 			}
 			return fmt.Errorf("%w", checkErr)
 		}

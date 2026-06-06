@@ -34,7 +34,8 @@ func TestDirectAuth_SignersFor_EmptyHost(t *testing.T) {
 }
 
 type fakeProxyClient struct {
-	err error
+	err  error
+	mode string
 }
 
 func (f *fakeProxyClient) RequestCertificate(ctx context.Context, req sdk.CertRequest) (*gossh.Certificate, ed25519.PrivateKey, error) {
@@ -43,10 +44,27 @@ func (f *fakeProxyClient) RequestCertificate(ctx context.Context, req sdk.CertRe
 	return nil, nil, f.err
 }
 
+func (f *fakeProxyClient) RequestSignature(ctx context.Context, req sdk.SignatureRequest, signData []byte) (*gossh.Signature, error) {
+	_ = ctx
+	_ = req
+	_ = signData
+	return nil, f.err
+}
+
+func (f *fakeProxyClient) FetchCapabilities(ctx context.Context) (sdk.Capabilities, error) {
+	_ = ctx
+	mode := f.mode
+	if mode == "" {
+		mode = proxySignerModeLocalCA
+	}
+	return sdk.Capabilities{SignerMode: mode}, f.err
+}
+
 func TestProxyAuth_MapDenied(t *testing.T) {
 	p := &proxyAuth{
-		client: &fakeProxyClient{err: ErrAccessDenied},
-		cache:  make(map[string][]gossh.Signer),
+		client:     &fakeProxyClient{err: ErrAccessDenied},
+		signerMode: proxySignerModeLocalCA,
+		cache:      make(map[string][]gossh.Signer),
 	}
 	_, err := p.SignersFor(context.Background(), Target{User: "u", Host: "127.0.0.1", Port: "22", Raw: "u@127.0.0.1:22"})
 	if err == nil {
