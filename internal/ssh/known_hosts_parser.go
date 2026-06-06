@@ -40,34 +40,11 @@ func ParseKnownHosts() ([]string, error) {
 	for h := range hostSet {
 		plain = append(plain, h)
 	}
-	return matchKnownHostsFromSSHConfig(path, plain)
+	return discoverKnownHostNames(path, plain)
 }
 
 func matchKnownHostsFromSSHConfig(khPath string, plain []string) ([]string, error) {
-	hostSet := make(map[string]struct{})
-	for _, h := range plain {
-		hostSet[h] = struct{}{}
-	}
-
-	candidates, err := sshConfigHostCandidates()
-	if err != nil {
-		return nil, err
-	}
-	for _, c := range candidates {
-		ok, err := HasKnownHostEntry(khPath, c.host, c.port)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			hostSet[c.label] = struct{}{}
-		}
-	}
-
-	result := make([]string, 0, len(hostSet))
-	for h := range hostSet {
-		result = append(result, h)
-	}
-	return result, nil
+	return discoverKnownHostNames(khPath, plain)
 }
 
 func parsePlainKnownHostsLine(line string) []string {

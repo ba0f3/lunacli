@@ -140,3 +140,129 @@ func TestParsePlainKnownHostsLine(t *testing.T) {
 		t.Fatalf("bracket line: got %v", bracket)
 	}
 }
+
+func TestParseKnownHosts_hashedUnderAliasLabel(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	const alias = "r2d-infra"
+	const hostName = "10.9.5.15"
+	hashed := knownhosts.HashHostname(alias)
+	khLine := hashed + " ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIANWLcHyZmh3BN1W11kQt+oPgmyLiDLmYD7FV8NoulPz"
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(khLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "Host " + alias + "\n  HostName " + hostName + "\n  Port 22\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := HasKnownHostEntryForTarget(filepath.Join(sshDir, "known_hosts"), alias, hostName, "22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("HasKnownHostEntryForTarget() = false, want true")
+	}
+
+	got, err := ParseKnownHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsString(got, alias) {
+		t.Fatalf("ParseKnownHosts() = %v, want alias %q", got, alias)
+	}
+	if !containsString(got, hostName) {
+		t.Fatalf("ParseKnownHosts() = %v, want resolved host %q", got, hostName)
+	}
+}
+
+func TestHasKnownHostEntryForTarget_dialByResolvedIPWithAliasHash(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	const alias = "myalias"
+	hashed := knownhosts.HashHostname(alias)
+	khLine := hashed + " ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIANWLcHyZmh3BN1W11kQt+oPgmyLiDLmYD7FV8NoulPz"
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(khLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "Host " + alias + "\n  HostName localhost\n  Port 22\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	khPath := filepath.Join(sshDir, "known_hosts")
+	ok, err := HasKnownHostEntryForTarget(khPath, "127.0.0.1", "127.0.0.1", "22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("dial-by-resolved IP should match alias-hashed known_hosts entry")
+	}
+}
+
+func TestHasKnownHostEntryForTarget_dialByIPWithAliasHash(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	const alias = "r2d-infra"
+	const hostName = "10.9.5.15"
+	hashed := knownhosts.HashHostname(alias)
+	khLine := hashed + " ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIANWLcHyZmh3BN1W11kQt+oPgmyLiDLmYD7FV8NoulPz"
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(khLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "Host " + alias + "\n  HostName " + hostName + "\n  Port 22\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	khPath := filepath.Join(sshDir, "known_hosts")
+	ok, err := HasKnownHostEntryForTarget(khPath, hostName, hostName, "22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("dial-by-IP should match alias-hashed known_hosts entry")
+	}
+}
+
+func TestParseKnownHosts_hashedHostKeyAlias(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	const alias = "mybox"
+	const hostName = "10.0.0.5"
+	const keyAlias = "stable-host-key"
+	hashed := knownhosts.HashHostname(keyAlias)
+	khLine := hashed + " ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIANWLcHyZmh3BN1W11kQt+oPgmyLiDLmYD7FV8NoulPz"
+	if err := os.WriteFile(filepath.Join(sshDir, "known_hosts"), []byte(khLine+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "Host " + alias + "\n  HostName " + hostName + "\n  HostKeyAlias " + keyAlias + "\n"
+	if err := os.WriteFile(filepath.Join(sshDir, "config"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ok, err := HasKnownHostEntryForTarget(filepath.Join(sshDir, "known_hosts"), alias, hostName, "22")
+	if err != nil || !ok {
+		t.Fatalf("HasKnownHostEntryForTarget() = %v, %v; want true", ok, err)
+	}
+}

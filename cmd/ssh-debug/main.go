@@ -92,9 +92,9 @@ func main() {
 	sshUser = canonicalT.User
 	addr := net.JoinHostPort(canonicalT.Host, canonicalT.Port)
 	dialHost, _ := apssh.ResolveSSHConfigHost(host, port)
-	khHost := apssh.KnownHostsHost(host, dialHost)
+	lookupHosts := apssh.KnownHostsLookupCandidates(host, dialHost, canonicalT.Port)
 	fmt.Printf("canonical target: %s\n", canonical)
-	fmt.Printf("known_hosts lookup host: %q\n", khHost)
+	fmt.Printf("known_hosts lookup hosts: %v\n", lookupHosts)
 
 	fmt.Printf("\nDialing %s as %q...\n", addr, sshUser)
 
@@ -111,8 +111,13 @@ func main() {
 
 		var khErr error
 		if khCallback != nil {
-			checkAddr := net.JoinHostPort(khHost, canonicalT.Port)
-			khErr = khCallback(checkAddr, remote, key)
+			for _, lookupHost := range lookupHosts {
+				checkAddr := net.JoinHostPort(lookupHost, canonicalT.Port)
+				khErr = khCallback(checkAddr, remote, key)
+				if khErr == nil {
+					break
+				}
+			}
 			if khErr != nil {
 				fmt.Printf("\n[DEBUG] knownhosts.New callback result: %v\n", khErr)
 
@@ -150,7 +155,7 @@ func main() {
 		HostKeyCallback: debugCallback,
 		Timeout:         5 * time.Second,
 	}
-	if preAlgos, scanErr := apssh.HostKeyAlgorithmsForKnownHost(khPath, khHost, canonicalT.Port); scanErr != nil {
+	if preAlgos, scanErr := apssh.HostKeyAlgorithmsForTarget(khPath, host, dialHost, canonicalT.Port); scanErr != nil {
 		fmt.Printf("Warning: scan known_hosts for host key algorithms: %v\n", scanErr)
 	} else if len(preAlgos) > 0 {
 		fmt.Printf("HostKeyAlgorithms pinned from known_hosts: %v\n", preAlgos)
@@ -189,11 +194,16 @@ func main() {
 		if khCallback == nil {
 			return nil
 		}
-		checkAddr := net.JoinHostPort(khHost, canonicalT.Port)
-		if err := khCallback(checkAddr, remote, key); err != nil {
-			return err
+		for _, lookupHost := range lookupHosts {
+			if err := khCallback(net.JoinHostPort(lookupHost, canonicalT.Port), remote, key); err != nil {
+				if lookupHost == lookupHosts[len(lookupHosts)-1] {
+					return err
+				}
+				continue
+			}
+			apssh.BindDestinationHostKey(signers, key)
+			return nil
 		}
-		apssh.BindDestinationHostKey(signers, key)
 		return nil
 	}
 

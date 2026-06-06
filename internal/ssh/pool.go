@@ -308,8 +308,7 @@ func (p *Pool) getClientBound(target, boundTarget string) (*gossh.Client, error)
 		return nil, fmt.Errorf("build auth for %q: %w", target, err)
 	}
 
-	khHost := resolveSSHConfigHostKeyAlias(host, dialHost)
-	khCallback, err := buildKnownHostsCallback(host, khHost, canonical.Port, func(key gossh.PublicKey) {
+	khCallback, err := buildKnownHostsCallback(host, dialHost, canonical.Port, func(key gossh.PublicKey) {
 		setDestinationHostKey(signers, key)
 	})
 	if err != nil {
@@ -317,7 +316,7 @@ func (p *Pool) getClientBound(target, boundTarget string) (*gossh.Client, error)
 	}
 
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
-	hostKeyAlgos, err := HostKeyAlgorithmsForKnownHost(khPath, khHost, canonical.Port)
+	hostKeyAlgos, err := HostKeyAlgorithmsForTarget(khPath, host, dialHost, canonical.Port)
 	if err != nil {
 		log.Printf("[SSH] known_hosts host-key algorithm scan for %s: %v (using crypto/ssh defaults)", host, err)
 	}
@@ -525,9 +524,9 @@ func tryWrapWithCertificate(privKeyPath, certPathOptional string, signer gossh.S
 
 // buildKnownHostsCallback creates a host key callback from ~/.ssh/known_hosts
 // that respects ~/.ssh/config StrictHostKeyChecking settings (no, accept-new).
-func buildKnownHostsCallback(sshAlias, khHost, khPort string, accepted func(gossh.PublicKey)) (gossh.HostKeyCallback, error) {
+func buildKnownHostsCallback(sshAlias, dialHost, khPort string, accepted func(gossh.PublicKey)) (gossh.HostKeyCallback, error) {
 	khPath := fmt.Sprintf("%s/.ssh/known_hosts", mustHome())
-	checkAddr := knownHostsCheckAddress(khHost, khPort)
+	lookupHosts := knownHostsLookupCandidates(sshAlias, dialHost, khPort)
 
 	var khCallback gossh.HostKeyCallback
 	if _, err := os.Stat(khPath); !os.IsNotExist(err) {
@@ -541,13 +540,15 @@ func buildKnownHostsCallback(sshAlias, khHost, khPort string, accepted func(goss
 	return func(_ string, remote net.Addr, key gossh.PublicKey) error {
 		var checkErr error
 		if khCallback != nil {
-			// Match plain and hashed known_hosts entries against the resolved dial target.
-			checkErr = khCallback(checkAddr, remote, key)
-			if checkErr == nil {
-				if accepted != nil {
-					accepted(key)
+			for _, lookupHost := range lookupHosts {
+				checkAddr := knownHostsCheckAddress(lookupHost, khPort)
+				checkErr = khCallback(checkAddr, remote, key)
+				if checkErr == nil {
+					if accepted != nil {
+						accepted(key)
+					}
+					return nil
 				}
-				return nil
 			}
 		} else {
 			checkErr = fmt.Errorf("known_hosts file not found")

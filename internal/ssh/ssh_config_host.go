@@ -52,6 +52,11 @@ func KnownHostsHost(alias, resolvedHost string) string {
 	return resolveSSHConfigHostKeyAlias(alias, resolvedHost)
 }
 
+// KnownHostsLookupCandidates returns all host names checked against known_hosts for a target.
+func KnownHostsLookupCandidates(alias, dialHost, port string) []string {
+	return knownHostsLookupCandidates(alias, dialHost, port)
+}
+
 func resolveSSHConfigHostKeyAlias(alias, resolvedHost string) string {
 	cfg, err := loadUserSSHConfig()
 	if err == nil && cfg != nil {
