@@ -231,33 +231,39 @@ func isSemanticMutation(args []string) bool {
 		return false
 	}
 	command := filepath.Base(strings.ToLower(args[0]))
-	lowerArgs := make([]string, len(args)-1)
-	for i, arg := range args[1:] {
-		lowerArgs[i] = strings.ToLower(arg)
-	}
 	switch command {
-	case "date":
-		return containsOption(lowerArgs, "-s", "--set")
 	case "hostname":
+		// hostname uses exact case flags (e.g. -A vs -a), pass raw args
 		return isHostnameMutation(args[1:])
 	case "ss":
+		// ss uses mixed case options internally, pass raw args
 		return isSSMutation(args[1:])
-	case "journalctl":
-		return containsArgStartingWith(lowerArgs, "--vacuum") ||
-			containsArgPrefix(lowerArgs, "--cursor-file") ||
-			containsArg(lowerArgs, "--rotate", "--flush", "--sync", "--relinquish-var",
-				"--smart-relinquish-var", "--update-catalog", "--setup-keys")
-	case "ip":
-		return isIPMutation(lowerArgs)
-	case "sort":
-		return containsOption(lowerArgs, "-o", "--output")
-	case "uniq":
-		return uniqHasOutput(lowerArgs)
-	case "diff":
-		return containsArgPrefix(lowerArgs, "--output")
-	default:
-		return false
+	case "date", "journalctl", "ip", "sort", "uniq", "diff":
+		// ⚡ Bolt Optimization: Only allocate and calculate lowercase args
+		// if we are actually checking one of the target commands.
+		lowerArgs := make([]string, len(args)-1)
+		for i, arg := range args[1:] {
+			lowerArgs[i] = strings.ToLower(arg)
+		}
+		switch command {
+		case "date":
+			return containsOption(lowerArgs, "-s", "--set")
+		case "journalctl":
+			return containsArgStartingWith(lowerArgs, "--vacuum") ||
+				containsArgPrefix(lowerArgs, "--cursor-file") ||
+				containsArg(lowerArgs, "--rotate", "--flush", "--sync", "--relinquish-var",
+					"--smart-relinquish-var", "--update-catalog", "--setup-keys")
+		case "ip":
+			return isIPMutation(lowerArgs)
+		case "sort":
+			return containsOption(lowerArgs, "-o", "--output")
+		case "uniq":
+			return uniqHasOutput(lowerArgs)
+		case "diff":
+			return containsArgPrefix(lowerArgs, "--output")
+		}
 	}
+	return false
 }
 
 func isSSMutation(args []string) bool {

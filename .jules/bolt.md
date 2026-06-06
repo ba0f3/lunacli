@@ -12,3 +12,7 @@
 ## 2026-06-05 - Prevent linear scanning of allowlist prefixes
 **Learning:** A linear scan over dozens of static command prefixes inside `Classify` creates unnecessary overhead. Because prefix matches naturally share the same first word as the matched command, we can safely group prefixes by their first word.
 **Action:** Store and query prefix allowlists using a `map[string][]commandPrefix` keyed by the first word of the prefix, enabling fast O(1) bucketing before performing localized iterations.
+
+## 2026-06-06 - Prevent strings.ToLower and slice allocations in non-matching cases
+**Learning:** Calling `strings.ToLower` on every command argument inside `isSemanticMutation` forces array slice allocations and O(N) lowercasing when evaluating commands that don't need it (which is 99% of all commands).
+**Action:** When performing switch/case evaluations over specific command names that require case-insensitive arguments matching, evaluate the base command match *before* dynamically allocating the lowercase slice.
