@@ -4,9 +4,6 @@ BINARY      := ./bin/luna
 INSTALL_DIR := $(HOME)/.local/bin
 GO          := go
 
-onboard-bundle:
-	cd internal/onboard && go run gen_bundle.go
-
 build:
 	@mkdir -p ./bin
 	$(GO) build -ldflags="-s -w" -o $(BINARY) ./main.go
@@ -16,6 +13,9 @@ install: build
 	@mkdir -p $(INSTALL_DIR)
 	install -m 755 $(BINARY) $(INSTALL_DIR)/luna
 	@echo "Installed: $(INSTALL_DIR)/luna"
+
+onboard-bundle:
+	cd internal/onboard && go run gen_bundle.go
 
 test:
 	$(GO) test ./...

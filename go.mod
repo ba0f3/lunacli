@@ -28,4 +28,4 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 )
 
-replace github.com/ba0f3/luna-ztrust/sdk => ../ba0f3/luna-ztrust/sdk
+replace github.com/ba0f3/luna-ztrust/sdk => ../luna-ztrust/sdk

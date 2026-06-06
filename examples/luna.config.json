@@ -3,6 +3,12 @@
   "approval": {
     "ttl": "10m"
   },
+  "transport": {
+    "mode": "proxy",
+    "proxy": {
+      "endpoint": "https://proxy.example:8443"
+    }
+  },
   "telegram": {
     "bot_token_file": "/home/you/.config/luna/telegram-bot-token",
     "approver_user_id": "123456789",

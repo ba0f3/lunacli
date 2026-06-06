@@ -26,3 +26,5 @@ fuzz-crashes/
 .env
 .env.local
 .antigravitycli/
+
+.luna.d/

@@ -1,0 +1,24 @@
+{
+  "config_dir": "./luna.d",
+  "approval": {
+    "ttl": "10m"
+  },
+  "telegram": {
+    "bot_token": "",
+    "bot_token_file": "/home/tui/repos/lunacli/telegram-bot-token",
+    "approver_user_id": "52007861",
+    "chat_id": "52007861"
+  },
+  "audit": {
+    "file": ""
+  },
+  "transport": {
+    "mode": "",
+    "proxy": {
+      "endpoint": "",
+      "tls_cert": "",
+      "tls_key": "",
+      "tls_ca": ""
+    }
+  }
+}

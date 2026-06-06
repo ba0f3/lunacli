@@ -24,7 +24,7 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 	if err := writeln(out, "Luna onboard — interactive setup"); err != nil {
 		return err
 	}
-	if err := writeln(out, "Creates luna.config.json, policy files, and Telegram approval settings."); err != nil {
+	if err := writeln(out, "Creates luna.config.json, policy files, luna-proxy transport, and Telegram approval settings."); err != nil {
 		return err
 	}
 	if err := writeln(out, "Docs: docs/oob-approval.md"); err != nil {
@@ -78,6 +78,11 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 				return err
 			}
 		}
+	}
+
+	transport, err := PromptTransport(p, out, errOut)
+	if err != nil {
+		return fmt.Errorf("transport: %w", err)
 	}
 
 	if err := writeln(errOut, "Enter your Telegram bot token (from @BotFather). Input may be visible — beware shoulder-surfing."); err != nil {
@@ -150,6 +155,7 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 	fs := config.FileSettings{
 		ConfigDir: ly.ConfigDirRel,
 		Approval:  config.ApprovalSettings{TTL: "10m"},
+		Transport: transport,
 		Telegram: config.TelegramSettings{
 			BotTokenFile:   ly.TokenFile,
 			ApproverUserID: approverID,
@@ -177,6 +183,11 @@ func Run(in io.Reader, out, errOut io.Writer) error {
 	}
 	if err := writef(out, "  • Edit %s with your SSH host aliases\n", filepath.Join(ly.PolicyDir, "hosts.yml")); err != nil {
 		return err
+	}
+	if transport.Mode == "proxy" || transport.Mode == "" {
+		if err := writeln(out, "  • Install mTLS client certs for luna-proxy (default: ~/.config/luna/certs/)"); err != nil {
+			return err
+		}
 	}
 	if err := writef(out, "  • Run: %s serve\n", exe); err != nil {
 		return err
