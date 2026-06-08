@@ -144,7 +144,6 @@ func (e *Engine) ClassifyTargets(command string, hosts []string, tags []string) 
 			}
 			args[0] = filepath.Base(args[0])
 			unquotedCmd := strings.Join(args, " ")
-			lowerCmd := strings.ToLower(unquotedCmd)
 
 			if !isLiteralInspectionCommand(args[0]) {
 				for _, re := range forbiddenPatterns {
@@ -156,6 +155,8 @@ func (e *Engine) ClassifyTargets(command string, hosts []string, tags []string) 
 			}
 
 			if hasMutatingFlagPatterns(args[0]) {
+				// ⚡ Bolt Optimization: Only allocate and lower-case the unquoted command if it requires mutating flags evaluation.
+				lowerCmd := strings.ToLower(unquotedCmd)
 				for _, re := range mutatingFlagPatterns {
 					if re.MatchString(lowerCmd) {
 						flag(Mutating, "command contains mutating flags")
