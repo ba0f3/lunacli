@@ -16,3 +16,6 @@
 ## 2026-06-06 - Prevent strings.ToLower and slice allocations in non-matching cases
 **Learning:** Calling `strings.ToLower` on every command argument inside `isSemanticMutation` forces array slice allocations and O(N) lowercasing when evaluating commands that don't need it (which is 99% of all commands).
 **Action:** When performing switch/case evaluations over specific command names that require case-insensitive arguments matching, evaluate the base command match *before* dynamically allocating the lowercase slice.
+## 2026-06-07 - Prevent strings.ToLower and slice allocations in non-matching cases
+**Learning:** Allocating lower-cased versions of strings to evaluate regex match for mutating commands causes memory waste and compute time overhead if the command doesn't actually have a chance to be evaluated.
+**Action:** Move allocations such as `strings.ToLower` right before the conditional block that requires it, evaluating previous fast conditions (like `hasMutatingFlagPatterns`) first.
