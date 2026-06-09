@@ -141,6 +141,15 @@ func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramPr
 // Name implements Provider.
 func (tg *TelegramProvider) Name() string { return "telegram" }
 
+type sanitizedError struct {
+	err error
+	msg string
+}
+
+func (s *sanitizedError) Error() string { return s.msg }
+func (s *sanitizedError) Is(target error) bool { return errors.Is(s.err, target) }
+func (s *sanitizedError) As(target any) bool { return errors.As(s.err, target) }
+
 func (tg *TelegramProvider) sanitizeError(err error) error {
 	if err == nil {
 		return nil
@@ -149,7 +158,7 @@ func (tg *TelegramProvider) sanitizeError(err error) error {
 	if tg.botToken != "" {
 		s = strings.ReplaceAll(s, tg.botToken, "[REDACTED]")
 	}
-	return errors.New(s)
+	return &sanitizedError{err: err, msg: s}
 }
 
 // Notify implements Provider.
