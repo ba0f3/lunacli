@@ -125,6 +125,15 @@ func DiscoverApprover(ctx context.Context, token string, client *http.Client, ap
 	return "", "", fmt.Errorf("no Telegram message received; send /start to your bot and retry")
 }
 
+type sanitizedError struct {
+	err error
+	msg string
+}
+
+func (s *sanitizedError) Error() string { return s.msg }
+func (s *sanitizedError) Is(target error) bool { return errors.Is(s.err, target) }
+func (s *sanitizedError) As(target any) bool { return errors.As(s.err, target) }
+
 func sanitizeTokenError(err error, token string) error {
 	if err == nil {
 		return nil
@@ -133,7 +142,7 @@ func sanitizeTokenError(err error, token string) error {
 	if token != "" {
 		s = strings.ReplaceAll(s, token, "[REDACTED]")
 	}
-	return errors.New(s)
+	return &sanitizedError{err: err, msg: s}
 }
 
 type telegramUpdatesResponse struct {
