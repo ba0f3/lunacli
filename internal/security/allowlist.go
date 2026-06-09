@@ -541,7 +541,7 @@ func isDatabaseMutation(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	if _, ok := databaseClients[filepath.Base(strings.ToLower(args[0]))]; !ok {
+	if _, ok := databaseClients[strings.ToLower(filepath.Base(args[0]))]; !ok {
 		return false
 	}
 	for _, arg := range args[1:] {
