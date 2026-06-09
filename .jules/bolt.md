@@ -19,3 +19,7 @@
 ## 2026-06-07 - Prevent strings.ToLower and slice allocations in non-matching cases
 **Learning:** Allocating lower-cased versions of strings to evaluate regex match for mutating commands causes memory waste and compute time overhead if the command doesn't actually have a chance to be evaluated.
 **Action:** Move allocations such as `strings.ToLower` right before the conditional block that requires it, evaluating previous fast conditions (like `hasMutatingFlagPatterns`) first.
+
+## 2026-06-09 - Prevent strings.ToLower over-allocations when parsing filepath
+**Learning:** Calling `filepath.Base(strings.ToLower(cmd))` first allocates a copy of the entire lowercased string (e.g. `/usr/bin/mycommand`) and then takes the base filename (`mycommand`). Reversing the order to `strings.ToLower(filepath.Base(cmd))` takes a string slice first (which does not allocate) and then lowercases only the base part, significantly reducing allocation size and time for commands with full paths.
+**Action:** Always extract the base file part (`filepath.Base`) before allocating string manipulations (`strings.ToLower`) when both are needed to normalize a binary execution path.

@@ -209,7 +209,7 @@ func timeoutDurationIndex(args []string) int {
 }
 
 func isLiteralInspectionCommand(command string) bool {
-	switch filepath.Base(strings.ToLower(command)) {
+	switch strings.ToLower(filepath.Base(command)) {
 	case "echo", "printf", "grep", "egrep", "fgrep":
 		return true
 	default:
@@ -218,7 +218,7 @@ func isLiteralInspectionCommand(command string) bool {
 }
 
 func hasMutatingFlagPatterns(command string) bool {
-	switch filepath.Base(strings.ToLower(command)) {
+	switch strings.ToLower(filepath.Base(command)) {
 	case "curl", "wget", "find", "sed", "awk":
 		return true
 	default:
@@ -230,7 +230,7 @@ func isSemanticMutation(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	command := filepath.Base(strings.ToLower(args[0]))
+	command := strings.ToLower(filepath.Base(args[0]))
 	switch command {
 	case "hostname":
 		// hostname uses exact case flags (e.g. -A vs -a), pass raw args
@@ -383,7 +383,7 @@ func isDatabaseMutation(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	if _, ok := databaseClients[filepath.Base(strings.ToLower(args[0]))]; !ok {
+	if _, ok := databaseClients[strings.ToLower(filepath.Base(args[0]))]; !ok {
 		return false
 	}
 	for _, arg := range args[1:] {
