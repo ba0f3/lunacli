@@ -23,3 +23,7 @@
 ## 2026-06-09 - Prevent strings.ToLower over-allocations when parsing filepath
 **Learning:** Calling `filepath.Base(strings.ToLower(cmd))` first allocates a copy of the entire lowercased string (e.g. `/usr/bin/mycommand`) and then takes the base filename (`mycommand`). Reversing the order to `strings.ToLower(filepath.Base(cmd))` takes a string slice first (which does not allocate) and then lowercases only the base part, significantly reducing allocation size and time for commands with full paths.
 **Action:** Always extract the base file part (`filepath.Base`) before allocating string manipulations (`strings.ToLower`) when both are needed to normalize a binary execution path.
+
+## 2026-06-10 - Prevent map allocation inside functions
+**Learning:** Initializing maps inside functions (like `objects` or `readOnlyOps`) forces a heap allocation and population on every single call to that function, creating unnecessary CPU and GC overhead.
+**Action:** Extract static maps used for lookups into package-level variables so they are only allocated and initialized once when the application starts.

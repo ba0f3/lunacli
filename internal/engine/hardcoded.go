@@ -307,14 +307,15 @@ func uniqHasOutput(args []string) bool {
 	return positionals >= 2
 }
 
+var hostnameReadOnlyFlags = map[string]struct{}{
+	"-a": {}, "-A": {}, "-d": {}, "-f": {}, "-i": {}, "-I": {}, "-s": {}, "-y": {},
+	"--alias": {}, "--all-fqdns": {}, "--domain": {}, "--fqdn": {}, "--ip-address": {},
+	"--all-ip-addresses": {}, "--short": {}, "--yp": {}, "--nis": {}, "--help": {}, "--version": {},
+}
+
 func isHostnameMutation(args []string) bool {
-	readOnlyFlags := map[string]struct{}{
-		"-a": {}, "-A": {}, "-d": {}, "-f": {}, "-i": {}, "-I": {}, "-s": {}, "-y": {},
-		"--alias": {}, "--all-fqdns": {}, "--domain": {}, "--fqdn": {}, "--ip-address": {},
-		"--all-ip-addresses": {}, "--short": {}, "--yp": {}, "--nis": {}, "--help": {}, "--version": {},
-	}
 	for _, arg := range args {
-		if _, ok := readOnlyFlags[arg]; !ok {
+		if _, ok := hostnameReadOnlyFlags[arg]; !ok {
 			return true
 		}
 	}
@@ -354,22 +355,24 @@ func containsArgPrefix(args []string, prefixes ...string) bool {
 	return false
 }
 
+var ipMutationObjects = map[string]struct{}{
+	"addr": {}, "address": {}, "link": {}, "route": {},
+}
+
+var ipMutationReadOnlyOps = map[string]struct{}{
+	"show": {}, "list": {}, "get": {}, "help": {}, "save": {}, "monitor": {},
+}
+
 func isIPMutation(args []string) bool {
-	objects := map[string]struct{}{
-		"addr": {}, "address": {}, "link": {}, "route": {},
-	}
-	readOnlyOps := map[string]struct{}{
-		"show": {}, "list": {}, "get": {}, "help": {}, "save": {}, "monitor": {},
-	}
 	for i, arg := range args {
-		if _, ok := objects[arg]; !ok {
+		if _, ok := ipMutationObjects[arg]; !ok {
 			continue
 		}
 		for _, op := range args[i+1:] {
 			if strings.HasPrefix(op, "-") {
 				continue
 			}
-			if _, ok := readOnlyOps[op]; ok {
+			if _, ok := ipMutationReadOnlyOps[op]; ok {
 				return false
 			}
 			return true
