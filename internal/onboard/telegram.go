@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -130,9 +132,34 @@ type sanitizedError struct {
 	msg string
 }
 
-func (s *sanitizedError) Error() string { return s.msg }
+func (s *sanitizedError) Error() string        { return s.msg }
 func (s *sanitizedError) Is(target error) bool { return errors.Is(s.err, target) }
-func (s *sanitizedError) As(target any) bool { return errors.As(s.err, target) }
+func (s *sanitizedError) As(target any) bool {
+	if _, ok := target.(**url.Error); ok {
+		return false
+	}
+	if targetNetErr, ok := target.(*net.Error); ok {
+		*targetNetErr = s
+		return true
+	}
+	return errors.As(s.err, target)
+}
+
+func (s *sanitizedError) Timeout() bool {
+	var ne net.Error
+	if errors.As(s.err, &ne) {
+		return ne.Timeout()
+	}
+	return false
+}
+
+func (s *sanitizedError) Temporary() bool {
+	var ne net.Error
+	if errors.As(s.err, &ne) {
+		return ne.Temporary()
+	}
+	return false
+}
 
 func sanitizeTokenError(err error, token string) error {
 	if err == nil {

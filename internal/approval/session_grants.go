@@ -9,9 +9,9 @@ import (
 // sessionGrants remembers approved execute_remote payloads for the lifetime of
 // luna serve so repeat calls skip Telegram until grant expiry (approval TTL).
 type sessionGrants struct {
-	mu       sync.RWMutex
-	exact    map[string]time.Time // host + command + timeout
-	command  map[string]time.Time // command + timeout (any host)
+	mu      sync.RWMutex
+	exact   map[string]time.Time // host + command + timeout
+	command map[string]time.Time // command + timeout (any host)
 }
 
 func newSessionGrants() *sessionGrants {
