@@ -10,7 +10,7 @@ import (
 
 func TestValidateProxyEndpoint(t *testing.T) {
 	tests := []struct {
-		in    string
+		in      string
 		wantErr bool
 	}{
 		{"https://proxy.example:8443", false},
