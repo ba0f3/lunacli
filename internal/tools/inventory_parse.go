@@ -25,8 +25,9 @@ var secretArgNames = []string{
 
 var apkPackagePattern = regexp.MustCompile(`^(.+)-([0-9][^\s]*)`)
 
-func redactSecretLikeArgs(command string) string {
-	fields := strings.Fields(command)
+// redactSecretLikeArgs modifies the provided slice in-place to redact secrets
+// and returns the re-joined string.
+func redactSecretLikeArgs(fields []string) string {
 	for i := 0; i < len(fields); i++ {
 		field := fields[i]
 		key := strings.TrimLeft(field, "-")
@@ -149,11 +150,12 @@ func parsePSProcesses(out string) []InventoryProcess {
 			continue
 		}
 		processes = append(processes, InventoryProcess{
-			User:    parts[0],
-			PID:     parts[1],
-			CPU:     parts[2],
-			Memory:  parts[3],
-			Command: redactSecretLikeArgs(strings.Join(parts[4:], " ")),
+			User:   parts[0],
+			PID:    parts[1],
+			CPU:    parts[2],
+			Memory: parts[3],
+			// ⚡ Bolt Optimization: Pass the already-split slice to avoid redundant string join and fields split.
+			Command: redactSecretLikeArgs(parts[4:]),
 		})
 	}
 	return processes

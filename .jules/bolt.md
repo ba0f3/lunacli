@@ -27,3 +27,7 @@
 ## 2026-06-10 - Prevent map allocation inside functions
 **Learning:** Initializing maps inside functions (like `objects` or `readOnlyOps`) forces a heap allocation and population on every single call to that function, creating unnecessary CPU and GC overhead.
 **Action:** Extract static maps used for lookups into package-level variables so they are only allocated and initialized once when the application starts.
+
+## 2026-06-12 - Prevent redundant string allocations via Join and Fields
+**Learning:** Reconstructing a string from a string slice (`strings.Join`) just to immediately split it back into a string slice (`strings.Fields`) inside a subsequent function causes unnecessary heap allocations for both the new string and the new slice.
+**Action:** When working with tokenized data (like split command outputs), pass the `[]string` slice directly to processing functions. Process or modify the slice in-place if it was locally created, thereby eliminating redundant `Join` and `Fields` operations.

@@ -3,7 +3,7 @@ package tools
 import "testing"
 
 func TestRedactSecretLikeArgs(t *testing.T) {
-	input := "postgres --user app --password supersecret --token=abc123 --safe value AWS_SECRET_ACCESS_KEY=secret"
+	input := []string{"postgres", "--user", "app", "--password", "supersecret", "--token=abc123", "--safe", "value", "AWS_SECRET_ACCESS_KEY=secret"}
 	got := redactSecretLikeArgs(input)
 	want := "postgres --user app --password [REDACTED] --token=[REDACTED] --safe value AWS_SECRET_ACCESS_KEY=[REDACTED]"
 	if got != want {
