@@ -142,7 +142,9 @@ func (s *sanitizedError) As(target any) bool {
 		*targetNetErr = s
 		return true
 	}
-	return errors.As(s.err, target)
+	// SEC: Do not delegate to errors.As(s.err, target).
+	// url.Error implements interfaces that could allow a caller to extract it and leak the token.
+	return false
 }
 
 func (s *sanitizedError) Timeout() bool {
