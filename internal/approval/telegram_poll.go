@@ -239,14 +239,14 @@ func (tg *TelegramProvider) postTelegram(ctx context.Context, path string, body 
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("telegram API: read response: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram API: read response: %w", err))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("telegram API: HTTP %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+		return tg.sanitizeError(fmt.Errorf("telegram API: HTTP %s: %s", resp.Status, strings.TrimSpace(string(respBody))))
 	}
 	if into != nil {
 		if err := json.Unmarshal(respBody, into); err != nil {
-			return fmt.Errorf("telegram API: decode response: %w", err)
+			return tg.sanitizeError(fmt.Errorf("telegram API: decode response: %w", err))
 		}
 	}
 	return nil
