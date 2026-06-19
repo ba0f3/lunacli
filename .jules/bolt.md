@@ -31,3 +31,7 @@
 ## 2026-06-12 - Prevent redundant string allocations via Join and Fields
 **Learning:** Reconstructing a string from a string slice (`strings.Join`) just to immediately split it back into a string slice (`strings.Fields`) inside a subsequent function causes unnecessary heap allocations for both the new string and the new slice.
 **Action:** When working with tokenized data (like split command outputs), pass the `[]string` slice directly to processing functions. Process or modify the slice in-place if it was locally created, thereby eliminating redundant `Join` and `Fields` operations.
+
+## 2026-06-19 - Prevent allocations inside shell argument iteration loops
+**Learning:** Checking for shell command options inside loops via `strings.TrimPrefix` or `strings.ToLower` on every argument adds significant overhead when evaluating command restrictions. Because many flags follow rigid rules (like starting with `-` or `--`), evaluating these properties directly prevents unnecessary allocations.
+**Action:** When inspecting arguments to determine mutation, immediately skip the iteration check using `arg[0] != '-'` or similar fast slicing/index checks before conditionally performing allocations like `strings.ToLower` and avoiding substring extractions using static prefixes.
