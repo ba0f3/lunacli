@@ -53,4 +53,14 @@ func TestSanitizedError_As(t *testing.T) {
 			t.Fatalf("Expected As(unwrapInterface) to return false to prevent leaking *url.Error, but got true")
 		}
 	})
+
+	t.Run("Redacts token string from error message", func(t *testing.T) {
+		errWithMessage := errors.New("HTTP Error: bad gateway for url https://api.telegram.org/botSECRET/getUpdates")
+		wrappedErr := tg.sanitizeError(errWithMessage)
+
+		expectedMsg := "HTTP Error: bad gateway for url https://api.telegram.org/bot[REDACTED]/getUpdates"
+		if wrappedErr.Error() != expectedMsg {
+			t.Errorf("Expected sanitized error message %q, got %q", expectedMsg, wrappedErr.Error())
+		}
+	})
 }

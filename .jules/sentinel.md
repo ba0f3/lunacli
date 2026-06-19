@@ -18,7 +18,7 @@
 **Learning:** `errors.As` works across interfaces. Even if `Unwrap()` is not implemented, implementing `As` by delegating directly to the underlying error allows any interface that the underlying error implements to be extracted.
 **Prevention:** In custom sanitized error wrappers, explicitly intercept `errors.As` calls for `**url.Error` returning `false`, intercept interfaces like `*net.Error` by assigning the wrapper to the target, and most importantly, DO NOT delegate to `errors.As(s.err, target)`. Instead, return `false` as a fallback to prevent the extraction of the underlying error through interfaces.
 
-## 2026-06-18 - [Telegram Token Leak Prevention - HTTP Response Body]
+## 2026-06-19 - [Telegram Token Leak Prevention - HTTP Response Body]
 **Vulnerability:** Telegram API errors when polling updates or sending messages could return HTTP response bodies containing HTML or error strings from WAFs/proxies that reflect the requested URL, thereby leaking the Telegram bot token via `io.ReadAll` or JSON parsing error messages.
 **Learning:** Just sanitizing `http.Client.Do()` errors isn't enough; any error from processing the HTTP response (reading the body, parsing JSON, or returning non-2xx status codes) must also be sanitized because the error string could include the response body which might reflect the URL and its embedded token.
 **Prevention:** Apply the custom `sanitizeTokenError` (or `tg.sanitizeError`) to ALL errors returned from the HTTP interaction lifecycle, including `io.ReadAll`, `json.Unmarshal`, and status code checks.
