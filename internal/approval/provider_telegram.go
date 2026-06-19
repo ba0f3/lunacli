@@ -225,18 +225,18 @@ func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("telegram sendMessage: read response: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: read response: %w", err))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("telegram sendMessage: HTTP %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: HTTP %s: %s", resp.Status, strings.TrimSpace(string(respBody))))
 	}
 
 	var api telegramSendMessageResponse
 	if err := json.Unmarshal(respBody, &api); err != nil {
-		return fmt.Errorf("telegram sendMessage: decode response: %w", err)
+		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: decode response: %w", err))
 	}
 	if !api.OK {
-		return fmt.Errorf("telegram sendMessage: api error: %s", strings.TrimSpace(string(respBody)))
+		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: api error: %s", strings.TrimSpace(string(respBody))))
 	}
 	if api.Result.MessageID != 0 {
 		chatID := api.Result.Chat.ID

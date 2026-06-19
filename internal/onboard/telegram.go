@@ -92,7 +92,7 @@ func DiscoverApprover(ctx context.Context, token string, client *http.Client, ap
 		if resp.StatusCode != http.StatusOK {
 			cancel()
 			resp.Body.Close()
-			return "", "", fmt.Errorf("telegram getUpdates returned status %d", resp.StatusCode)
+			return "", "", sanitizeTokenError(fmt.Errorf("telegram getUpdates returned status %d", resp.StatusCode), token)
 		}
 
 		data, err := io.ReadAll(resp.Body)
@@ -101,14 +101,14 @@ func DiscoverApprover(ctx context.Context, token string, client *http.Client, ap
 		}
 		cancel()
 		if err != nil {
-			return "", "", err
+			return "", "", sanitizeTokenError(err, token)
 		}
 		var parsed telegramUpdatesResponse
 		if err := json.Unmarshal(data, &parsed); err != nil {
-			return "", "", err
+			return "", "", sanitizeTokenError(err, token)
 		}
 		if !parsed.OK {
-			return "", "", fmt.Errorf("telegram getUpdates: %s", parsed.Description)
+			return "", "", sanitizeTokenError(fmt.Errorf("telegram getUpdates: %s", parsed.Description), token)
 		}
 		var lastMsg *telegramMessage
 		for _, u := range parsed.Result {
