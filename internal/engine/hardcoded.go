@@ -268,13 +268,20 @@ func isSemanticMutation(args []string) bool {
 
 func isSSMutation(args []string) bool {
 	for _, arg := range args {
-		lower := strings.ToLower(arg)
-		if lower == "--kill" || lower == "--diag" || strings.HasPrefix(lower, "--diag=") {
-			return true
+		if len(arg) < 2 || arg[0] != '-' {
+			continue
 		}
-		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") {
-			options := strings.TrimPrefix(arg, "-")
+
+		if arg[1] != '-' {
+			// Single dash flag block
+			options := arg[1:]
 			if strings.ContainsRune(options, 'K') || strings.ContainsRune(options, 'D') {
+				return true
+			}
+		} else {
+			// Double dash flags
+			lower := strings.ToLower(arg)
+			if lower == "--kill" || lower == "--diag" || strings.HasPrefix(lower, "--diag=") {
 				return true
 			}
 		}
@@ -283,11 +290,26 @@ func isSSMutation(args []string) bool {
 }
 
 func containsOption(args []string, short, long string) bool {
-	shortName := strings.TrimPrefix(short, "-")
+	shortName := short[1:] // short always starts with "-"
+	longEq := long + "="
 	for _, arg := range args {
-		if arg == short || strings.HasPrefix(arg, short) || arg == long || strings.HasPrefix(arg, long+"=") ||
-			(strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(strings.TrimPrefix(arg, "-"), shortName)) {
+		if len(arg) == 0 || arg[0] != '-' {
+			continue
+		}
+		if arg == short || arg == long {
 			return true
+		}
+		if strings.HasPrefix(arg, longEq) {
+			return true
+		}
+		if len(arg) > 1 && arg[1] != '-' {
+			// Single dash flag block
+			if strings.HasPrefix(arg, short) {
+				return true
+			}
+			if strings.Contains(arg[1:], shortName) {
+				return true
+			}
 		}
 	}
 	return false
