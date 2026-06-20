@@ -186,6 +186,10 @@ func (tg *TelegramProvider) sanitizeError(err error) error {
 	s := err.Error()
 	if tg.botToken != "" {
 		s = strings.ReplaceAll(s, tg.botToken, "[REDACTED]")
+		s = strings.ReplaceAll(s, url.QueryEscape(tg.botToken), "[REDACTED]")
+		s = strings.ReplaceAll(s, url.PathEscape(tg.botToken), "[REDACTED]")
+		// Also handle HTML escape which might be reflected by WAFs in error pages
+		s = strings.ReplaceAll(s, strings.ReplaceAll(tg.botToken, ":", "&#58;"), "[REDACTED]")
 	}
 	return &sanitizedError{err: err, msg: s}
 }

@@ -22,3 +22,8 @@
 **Vulnerability:** Telegram bot tokens were leaking via HTTP error strings originating from WAF/proxy error pages. When `httpClient.Do()` succeeds with a non-2xx status code, proxy layers might reflect the requested URL in their error HTML or text body. Returning this unredacted body via `io.ReadAll` or failed `json.Unmarshal` wraps it in an error that logs the token.
 **Learning:** Tokens can be leaked not just from `url.Error` inside `http.Client.Do()`, but also from the actual HTTP response payload if a WAF/proxy reflects the URL on error.
 **Prevention:** Apply custom error sanitization to the entire HTTP interaction lifecycle, including `io.ReadAll`, `json.Unmarshal`, and non-2xx status code handling, not just the initial `http.Client.Do()` network failure.
+
+## 2026-06-25 - [Telegram Token Leak Prevention - WAF/Proxy Encoding]
+**Vulnerability:** Telegram bot tokens were not fully redacted if a WAF/proxy reflected the requested URL using URL-encoding (e.g. `%3A` instead of `:`) or HTML-encoding (`&#58;`). A simple `strings.ReplaceAll(s, token, "[REDACTED]")` would miss these encoded variants, resulting in a token leak in error logs.
+**Learning:** Reflected tokens in HTTP error pages may be transformed by WAFs or proxies through URL or HTML encoding. String replacement sanitization must account for these encoded forms.
+**Prevention:** When sanitizing secrets from HTTP error bodies or URLs, always also redact the URL-escaped (`url.QueryEscape`, `url.PathEscape`) and HTML-escaped variants of the secret to ensure defense in depth against reflection attacks or logging leaks.
