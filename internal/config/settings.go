@@ -22,11 +22,11 @@ const (
 
 // FileSettings is the JSON configuration schema (all fields optional).
 type FileSettings struct {
-	ConfigDir string             `json:"config_dir"`
-	Approval  ApprovalSettings   `json:"approval"`
-	Telegram  TelegramSettings   `json:"telegram"`
-	Audit     AuditSettings      `json:"audit"`
-	Transport TransportSettings    `json:"transport"`
+	ConfigDir string            `json:"config_dir"`
+	Approval  ApprovalSettings  `json:"approval"`
+	Telegram  TelegramSettings  `json:"telegram"`
+	Audit     AuditSettings     `json:"audit"`
+	Transport TransportSettings `json:"transport"`
 }
 
 type TransportSettings struct {
