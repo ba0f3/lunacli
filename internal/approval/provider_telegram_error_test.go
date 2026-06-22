@@ -63,4 +63,18 @@ func TestSanitizedError_As(t *testing.T) {
 			t.Errorf("Expected sanitized error message %q, got %q", expectedMsg, wrappedErr.Error())
 		}
 	})
+
+	t.Run("Redacts HTML-escaped token string from error message", func(t *testing.T) {
+		tg := &TelegramProvider{botToken: "SEC&RET<TOKEN>"}
+
+		// The error from a WAF reflecting the path in HTML
+		htmlEscapedToken := "SEC&amp;RET&lt;TOKEN&gt;"
+		errWithMessage := errors.New("HTTP Error: bad gateway for url https://api.telegram.org/bot" + htmlEscapedToken + "/getUpdates")
+		wrappedErr := tg.sanitizeError(errWithMessage)
+
+		expectedMsg := "HTTP Error: bad gateway for url https://api.telegram.org/bot[REDACTED]/getUpdates"
+		if wrappedErr.Error() != expectedMsg {
+			t.Errorf("Expected sanitized error message %q, got %q", expectedMsg, wrappedErr.Error())
+		}
+	})
 }
