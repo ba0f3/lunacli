@@ -175,7 +175,7 @@ func sanitizeTokenError(err error, token string) error {
 		s = strings.ReplaceAll(s, url.PathEscape(token), "[REDACTED]")
 		// Also handle HTML escape which might be reflected by WAFs in error pages
 		s = strings.ReplaceAll(s, html.EscapeString(token), "[REDACTED]")
-		s = strings.ReplaceAll(s, strings.ReplaceAll(token, ":", "&#58;"), "[REDACTED]")
+		s = strings.ReplaceAll(s, strings.ReplaceAll(html.EscapeString(token), ":", "&#58;"), "[REDACTED]")
 	}
 	return &sanitizedError{err: err, msg: s}
 }
