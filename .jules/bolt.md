@@ -35,3 +35,7 @@
 ## 2026-06-19 - Prevent allocations inside shell argument iteration loops
 **Learning:** Checking for shell command options inside loops via `strings.TrimPrefix` or `strings.ToLower` on every argument adds significant overhead when evaluating command restrictions. Because many flags follow rigid rules (like starting with `-` or `--`), evaluating these properties directly prevents unnecessary allocations.
 **Action:** When inspecting arguments to determine mutation, immediately skip the iteration check using `arg[0] != '-'` or similar fast slicing/index checks before conditionally performing allocations like `strings.ToLower` and avoiding substring extractions using static prefixes.
+
+## 2026-06-25 - Prevent redundant string slice allocations in nested loops
+**Learning:** Recalculating string permutations (like `hostIdentityVariants` generating user/host splits and ports) inside a nested loop evaluating policy rules leads to severe O(N*M) allocation bloat. For example, in `ClassifyTargets`, calculating target identity variants for every single evaluated policy rule creates huge overhead when rules don't match.
+**Action:** When iterating over combinations of items where one side's permutations are independent of the other side (e.g. generating target variants vs checking policy rules), pre-calculate the permutations once before the loop and pass the expanded slice directly to the comparison function.
