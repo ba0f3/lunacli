@@ -59,6 +59,16 @@ func (e *Engine) ClassifyTargets(command string, hosts []string, tags []string) 
 		return Result{Class: Forbidden, Reason: "command exceeds maximum length"}
 	}
 
+	// ⚡ Bolt Optimization: Pre-calculate host identity variants once per ClassifyTargets call
+	// to avoid redundant string allocations and splitting for every rule evaluated during AST traversal.
+	var targetHostVariants []string
+	if e.pol != nil && len(hosts) > 0 {
+		targetHostVariants = make([]string, 0, len(hosts)*3)
+		for _, targetHost := range hosts {
+			targetHostVariants = append(targetHostVariants, hostIdentityVariants(targetHost)...)
+		}
+	}
+
 	p := syntax.NewParser()
 	file, err := p.Parse(strings.NewReader(cmd), "")
 	if err != nil {
@@ -184,7 +194,7 @@ func (e *Engine) ClassifyTargets(command string, hosts []string, tags []string) 
 
 				matched := false
 				for _, rule := range e.pol.Rules {
-					if !matchAnyHostOrTags(rule.Hosts, rule.Tags, hosts, tags) {
+					if !matchAnyHostOrTags(rule.Hosts, rule.Tags, targetHostVariants, tags) {
 						continue
 					}
 					for _, rcmd := range rule.Commands {
@@ -220,12 +230,10 @@ func (e *Engine) ClassifyTargets(command string, hosts []string, tags []string) 
 	return res
 }
 
-func matchAnyHostOrTags(ruleHosts, ruleTags, targetHosts, targetTags []string) bool {
-	for _, targetHost := range targetHosts {
-		for _, variant := range hostIdentityVariants(targetHost) {
-			if matchHostOrTags(ruleHosts, ruleTags, variant, targetTags) {
-				return true
-			}
+func matchAnyHostOrTags(ruleHosts, ruleTags, targetHostVariants, targetTags []string) bool {
+	for _, variant := range targetHostVariants {
+		if matchHostOrTags(ruleHosts, ruleTags, variant, targetTags) {
+			return true
 		}
 	}
 	return false
