@@ -2,6 +2,7 @@ package approval
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -217,7 +218,9 @@ func (tg *TelegramProvider) Notify(pending PendingInfo, req ExecuteRemoteRequest
 		return fmt.Errorf("telegram sendMessage: marshal body: %w", err)
 	}
 	urlStr := tg.apiBase + tg.sendMessagePath
-	httpReq, err := http.NewRequest(http.MethodPost, urlStr, bytes.NewReader(payload))
+	reqCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(reqCtx, http.MethodPost, urlStr, bytes.NewReader(payload))
 	if err != nil {
 		return tg.sanitizeError(fmt.Errorf("telegram sendMessage: build request: %w", err))
 	}

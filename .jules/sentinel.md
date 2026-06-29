@@ -31,3 +31,8 @@
 **Vulnerability:** Telegram bot tokens were not fully redacted if a WAF/proxy reflected the requested URL using HTML-encoding. A simple manual replacement of `":"` to `"&#58;"` was used, missing the complete standard Go `html.EscapeString()` implementation. Any special characters (`&`, `<`, `>`, `"`, `'`) within the token or properly HTML-escaped by a proxy were not redacted, resulting in a token leak in error logs.
 **Learning:** Reflected tokens in HTTP error pages transformed by WAFs or proxies through HTML encoding require the use of standard library encoding methods like `html.EscapeString()` to ensure comprehensive redaction.
 **Prevention:** When sanitizing secrets from HTTP error bodies or URLs, use standard encoding library functions (e.g., `html.EscapeString()`) to handle all potential HTML-escaped variants of the secret, replacing them comprehensively to ensure defense in depth against reflection attacks or logging leaks.
+
+## 2026-06-29 - [Missing API Timeout]
+**Vulnerability:** The Telegram provider `Notify` method invoked `http.NewRequest` and `client.Do()` without passing an explicit timeout context, meaning the application could hang indefinitely if the API or proxy became unresponsive.
+**Learning:** `http.NewRequest` defaults to a context that never cancels. Combined with an unconfigured default client (which has no timeout), external calls can block forever leading to Denial of Service via resource exhaustion.
+**Prevention:** Always use `http.NewRequestWithContext` combined with `context.WithTimeout` when making external API calls to guarantee bounded execution time.
