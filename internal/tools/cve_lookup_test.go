@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -52,7 +53,7 @@ func TestFetchMITRECVELookupParsesBasicFields(t *testing.T) {
 	}))
 	defer server.Close()
 
-	got, err := fetchMITRECVELookup(server.URL, "CVE-2026-9256", server.Client())
+	got, err := fetchMITRECVELookup(context.Background(), server.URL, "CVE-2026-9256", server.Client())
 	if err != nil {
 		t.Fatalf("fetchMITRECVELookup error: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestFetchMITRECVELookupHandlesHTTPFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := fetchMITRECVELookup(server.URL, "CVE-2026-9256", server.Client())
+	_, err := fetchMITRECVELookup(context.Background(), server.URL, "CVE-2026-9256", server.Client())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -98,7 +99,7 @@ func TestFetchNVDLookupParsesBasicFields(t *testing.T) {
 	}))
 	defer server.Close()
 
-	got, err := fetchNVDLookup(server.URL, "CVE-2024-3094", server.Client())
+	got, err := fetchNVDLookup(context.Background(), server.URL, "CVE-2024-3094", server.Client())
 	if err != nil {
 		t.Fatalf("fetchNVDLookup error: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestFetchNVDLookupHandlesHTTPFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := fetchNVDLookup(server.URL, "CVE-2024-3094", server.Client())
+	_, err := fetchNVDLookup(context.Background(), server.URL, "CVE-2024-3094", server.Client())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -176,12 +177,12 @@ func TestLookupCVEFallsBackToNVDWhenMITREMissing(t *testing.T) {
 
 // lookupCVEWithURLs is a test hook for configurable API bases.
 func lookupCVEWithURLs(cveID string, client *http.Client, mitreBase, nvdBase string) CVELookupResult {
-	result, mitreErr := fetchMITRECVELookup(mitreBase, cveID, client)
+	result, mitreErr := fetchMITRECVELookup(context.Background(), mitreBase, cveID, client)
 	if mitreErr == nil {
 		return result
 	}
 
-	result, err := fetchNVDLookup(nvdBase, cveID, client)
+	result, err := fetchNVDLookup(context.Background(), nvdBase, cveID, client)
 	if err != nil {
 		return CVELookupResult{
 			SchemaVersion: "luna.cve.v1",
