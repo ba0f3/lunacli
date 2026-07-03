@@ -61,7 +61,7 @@ func registerLookupCVE(s *server.MCPServer) {
 		}
 
 		client := &http.Client{Timeout: 20 * time.Second}
-		result := lookupCVE(cveID, client)
+		result := lookupCVE(ctx, cveID, client)
 		payload, err := json.MarshalIndent(result, "", "  ")
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("lookup_cve marshal error: %v", err)), nil
@@ -75,13 +75,13 @@ func normalizeCVEID(raw string) (string, bool) {
 	return id, cveIDPattern.MatchString(id)
 }
 
-func lookupCVE(cveID string, client *http.Client) CVELookupResult {
-	result, mitreErr := fetchMITRECVELookup(mitreCVEAPI, cveID, client)
+func lookupCVE(ctx context.Context, cveID string, client *http.Client) CVELookupResult {
+	result, mitreErr := fetchMITRECVELookup(ctx, mitreCVEAPI, cveID, client)
 	if mitreErr == nil {
 		return result
 	}
 
-	result, err := fetchNVDLookup(nvdCVEAPI, cveID, client)
+	result, err := fetchNVDLookup(ctx, nvdCVEAPI, cveID, client)
 	if err != nil {
 		errs := []string{fmt.Sprintf("mitre: %v", mitreErr), fmt.Sprintf("nvd: %v", err)}
 		return CVELookupResult{
@@ -97,9 +97,15 @@ func lookupCVE(cveID string, client *http.Client) CVELookupResult {
 	return result
 }
 
-func fetchMITRECVELookup(baseURL, cveID string, client *http.Client) (CVELookupResult, error) {
+func fetchMITRECVELookup(ctx context.Context, baseURL, cveID string, client *http.Client) (CVELookupResult, error) {
 	endpoint := strings.TrimSuffix(baseURL, "/") + "/" + cveID
-	resp, err := client.Get(endpoint)
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return CVELookupResult{}, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return CVELookupResult{}, err
 	}
@@ -200,7 +206,7 @@ type mitreCVSSScore struct {
 	VectorString string  `json:"vectorString"`
 }
 
-func fetchNVDLookup(baseURL, cveID string, client *http.Client) (CVELookupResult, error) {
+func fetchNVDLookup(ctx context.Context, baseURL, cveID string, client *http.Client) (CVELookupResult, error) {
 	endpoint, err := url.Parse(baseURL)
 	if err != nil {
 		return CVELookupResult{}, err
@@ -209,7 +215,13 @@ func fetchNVDLookup(baseURL, cveID string, client *http.Client) (CVELookupResult
 	q.Set("cveId", cveID)
 	endpoint.RawQuery = q.Encode()
 
-	resp, err := client.Get(endpoint.String())
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return CVELookupResult{}, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return CVELookupResult{}, err
 	}
