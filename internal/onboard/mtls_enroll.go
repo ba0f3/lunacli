@@ -91,7 +91,9 @@ func fetchProxyCA(ctx context.Context, opts MTLSEnrollOptions) (string, error) {
 	}
 	url := strings.TrimRight(opts.ProxyURL, "/") + mtlsCAPath
 	client := mtlsHTTPClient(opts.CertsDir, true, opts.Timeout)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	reqCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +168,9 @@ func enrollClientCSR(ctx context.Context, opts MTLSEnrollOptions) (string, error
 
 	url := strings.TrimRight(opts.ProxyURL, "/") + mtlsEnrollPath
 	client := mtlsHTTPClient(opts.CertsDir, false, opts.Timeout)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	reqCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
