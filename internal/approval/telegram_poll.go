@@ -108,7 +108,7 @@ func (tg *TelegramProvider) fetchUpdates(ctx context.Context, offset int64) ([]t
 		if desc == "" {
 			desc = "getUpdates returned ok=false"
 		}
-		return nil, fmt.Errorf("telegram getUpdates: %s", desc)
+		return nil, tg.sanitizeError(fmt.Errorf("telegram getUpdates: %s", desc))
 	}
 	return resp.Result, nil
 }
@@ -191,7 +191,7 @@ func (tg *TelegramProvider) editApprovalMessage(ctx context.Context, chatID, mes
 		if desc == "" {
 			desc = "editMessageText returned ok=false"
 		}
-		return fmt.Errorf("telegram editMessageText: %s", desc)
+		return tg.sanitizeError(fmt.Errorf("telegram editMessageText: %s", desc))
 	}
 	return nil
 }
@@ -211,7 +211,7 @@ func (tg *TelegramProvider) answerCallbackQuery(ctx context.Context, callbackQue
 		if desc == "" {
 			desc = "answerCallbackQuery returned ok=false"
 		}
-		return fmt.Errorf("telegram answerCallbackQuery: %s", desc)
+		return tg.sanitizeError(fmt.Errorf("telegram answerCallbackQuery: %s", desc))
 	}
 	return nil
 }
