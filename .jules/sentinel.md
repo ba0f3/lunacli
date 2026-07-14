@@ -36,3 +36,8 @@
 **Vulnerability:** The Telegram provider `Notify` method invoked `http.NewRequest` and `client.Do()` without passing an explicit timeout context, meaning the application could hang indefinitely if the API or proxy became unresponsive.
 **Learning:** `http.NewRequest` defaults to a context that never cancels. Combined with an unconfigured default client (which has no timeout), external calls can block forever leading to Denial of Service via resource exhaustion.
 **Prevention:** Always use `http.NewRequestWithContext` combined with `context.WithTimeout` when making external API calls to guarantee bounded execution time.
+
+## 2026-07-15 - [Unbounded Stream Reading]
+**Vulnerability:** HTTP response bodies and uncompressed tarball contents were being read entirely into memory using `io.ReadAll(reader)`. This exposes the application to Denial of Service (DoS) attacks via memory exhaustion (OOM), as malicious endpoints or corrupted tarballs could return extremely large payloads.
+**Learning:** `io.ReadAll` reads until EOF without any built-in size limit, allocating memory dynamically to fit the entire stream.
+**Prevention:** To prevent memory exhaustion, always bound untrusted input streams by wrapping the reader in an `io.LimitReader(reader, maxSize)` before calling `io.ReadAll`, thereby setting a strict upper bound on the number of bytes read into memory.
