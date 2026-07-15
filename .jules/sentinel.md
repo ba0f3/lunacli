@@ -41,3 +41,8 @@
 **Vulnerability:** HTTP response bodies and uncompressed tarball contents were being read entirely into memory using `io.ReadAll(reader)`. This exposes the application to Denial of Service (DoS) attacks via memory exhaustion (OOM), as malicious endpoints or corrupted tarballs could return extremely large payloads.
 **Learning:** `io.ReadAll` reads until EOF without any built-in size limit, allocating memory dynamically to fit the entire stream.
 **Prevention:** To prevent memory exhaustion, always bound untrusted input streams by wrapping the reader in an `io.LimitReader(reader, maxSize)` before calling `io.ReadAll`, thereby setting a strict upper bound on the number of bytes read into memory.
+
+## 2026-07-20 - [Unbounded Stream Reading during JSON Decode]
+**Vulnerability:** Similar to `io.ReadAll`, passing an HTTP response body directly to `json.NewDecoder(resp.Body).Decode(&v)` can lead to Denial of Service (DoS) attacks via memory exhaustion (OOM). A malicious or misconfigured upstream API could return an extremely large payload, which `json.NewDecoder` will attempt to parse entirely into memory.
+**Learning:** `json.NewDecoder` does not inherently bound the size of the stream it reads, making it vulnerable to large payload attacks just like `io.ReadAll`.
+**Prevention:** Always bound untrusted input streams before passing them to `json.NewDecoder` by wrapping the reader in an `io.LimitReader(reader, maxSize)`, thereby setting a strict upper bound on the number of bytes read and decoded into memory.

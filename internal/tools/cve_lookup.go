@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -118,7 +119,7 @@ func fetchMITRECVELookup(ctx context.Context, baseURL, cveID string, client *htt
 	}
 
 	var payload mitreCVERecord
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&payload); err != nil {
 		return CVELookupResult{}, err
 	}
 	if payload.DataType != "CVE_RECORD" || payload.CVEMetadata.CVEID == "" {
@@ -231,7 +232,7 @@ func fetchNVDLookup(ctx context.Context, baseURL, cveID string, client *http.Cli
 	}
 
 	var payload nvdResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&payload); err != nil {
 		return CVELookupResult{}, err
 	}
 	if len(payload.Vulnerabilities) == 0 {
