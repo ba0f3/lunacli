@@ -237,7 +237,7 @@ func (tg *TelegramProvider) postTelegram(ctx context.Context, path string, body 
 	}
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return tg.sanitizeError(fmt.Errorf("telegram API: read response: %w", err))
 	}

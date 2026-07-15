@@ -96,7 +96,7 @@ func DiscoverApprover(ctx context.Context, token string, client *http.Client, ap
 			return "", "", sanitizeTokenError(fmt.Errorf("telegram getUpdates returned status %d", resp.StatusCode), token)
 		}
 
-		data, err := io.ReadAll(resp.Body)
+		data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		if closeErr := resp.Body.Close(); err == nil {
 			err = closeErr
 		}

@@ -56,7 +56,7 @@ func BundleEntries(bundle []byte) (map[string][]byte, error) {
 		if hdr.Typeflag == tar.TypeDir {
 			continue
 		}
-		data, err := io.ReadAll(tr)
+		data, err := io.ReadAll(io.LimitReader(tr, 1<<20))
 		if err != nil {
 			return nil, fmt.Errorf("read tar entry %s: %w", hdr.Name, err)
 		}
