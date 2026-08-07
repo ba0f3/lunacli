@@ -72,6 +72,9 @@ func registerLookupCVE(s *server.MCPServer) {
 }
 
 func normalizeCVEID(raw string) (string, bool) {
+	if len(raw) > 50 {
+		return "", false
+	}
 	id := strings.ToUpper(strings.TrimSpace(raw))
 	return id, cveIDPattern.MatchString(id)
 }
