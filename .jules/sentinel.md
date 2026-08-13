@@ -46,3 +46,8 @@
 **Vulnerability:** Similar to `io.ReadAll`, passing an HTTP response body directly to `json.NewDecoder(resp.Body).Decode(&v)` can lead to Denial of Service (DoS) attacks via memory exhaustion (OOM). A malicious or misconfigured upstream API could return an extremely large payload, which `json.NewDecoder` will attempt to parse entirely into memory.
 **Learning:** `json.NewDecoder` does not inherently bound the size of the stream it reads, making it vulnerable to large payload attacks just like `io.ReadAll`.
 **Prevention:** Always bound untrusted input streams before passing them to `json.NewDecoder` by wrapping the reader in an `io.LimitReader(reader, maxSize)`, thereby setting a strict upper bound on the number of bytes read and decoded into memory.
+
+## 2026-07-31 - [http.DefaultClient Timeout Vulnerability]
+**Vulnerability:** The codebase was using `http.DefaultClient` in the Telegram integration, which lacks a configured timeout. This could lead to goroutine leaks and eventual resource exhaustion (Denial of Service) if the Telegram API or proxy hangs indefinitely.
+**Learning:** In Go, `http.DefaultClient` does not have a timeout. While `context.WithTimeout` on requests helps, relying on the default client itself is risky and can lead to resource exhaustion if contexts aren't carefully managed.
+**Prevention:** Avoid `http.DefaultClient` in production code. Always instantiate a custom `http.Client` with an explicit `Timeout` (e.g., `&http.Client{Timeout: 30 * time.Second}`).

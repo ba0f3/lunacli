@@ -50,7 +50,8 @@ func ReadBotToken(path string) (string, error) {
 // apiBaseFmt is like "https://api.telegram.org/bot%s/" (trailing slash optional).
 func DiscoverApprover(ctx context.Context, token string, client *http.Client, apiBaseFmt string) (approverID, chatID string, err error) {
 	if client == nil {
-		client = http.DefaultClient
+		// SEC: Avoid http.DefaultClient as it lacks a timeout, risking DoS via resource exhaustion
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	if apiBaseFmt == "" {
 		apiBaseFmt = "https://api.telegram.org/bot%s/"
