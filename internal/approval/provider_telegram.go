@@ -125,7 +125,8 @@ func NewTelegramProvider(svc *Service, opt TelegramProviderOptions) (*TelegramPr
 	}
 	client := opt.HTTPClient
 	if client == nil {
-		client = http.DefaultClient
+		// SEC: Avoid http.DefaultClient as it lacks a timeout, risking DoS via resource exhaustion
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	return &TelegramProvider{
