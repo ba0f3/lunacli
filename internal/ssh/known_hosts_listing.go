@@ -2,12 +2,14 @@ package ssh
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var knownHostsCommentIP = regexp.MustCompile(`#\s*(\d+\.\d+\.\d+\.\d+):\d+`)
@@ -146,7 +148,9 @@ func etcHostsNames() []string {
 }
 
 func tailscaleHostCandidates() []string {
-	out, err := exec.Command("tailscale", "status", "--json").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tailscale", "status", "--json").Output()
 	if err != nil {
 		return nil
 	}

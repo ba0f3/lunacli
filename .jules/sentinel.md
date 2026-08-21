@@ -51,3 +51,8 @@
 **Vulnerability:** The codebase was using `http.DefaultClient` in the Telegram integration, which lacks a configured timeout. This could lead to goroutine leaks and eventual resource exhaustion (Denial of Service) if the Telegram API or proxy hangs indefinitely.
 **Learning:** In Go, `http.DefaultClient` does not have a timeout. While `context.WithTimeout` on requests helps, relying on the default client itself is risky and can lead to resource exhaustion if contexts aren't carefully managed.
 **Prevention:** Avoid `http.DefaultClient` in production code. Always instantiate a custom `http.Client` with an explicit `Timeout` (e.g., `&http.Client{Timeout: 30 * time.Second}`).
+
+## 2026-08-21 - [Command Execution Timeout Vulnerability]
+**Vulnerability:** The application executed the `tailscale` CLI command using `exec.Command` without any timeout. If the `tailscale` daemon was unresponsive, this could cause the application to hang indefinitely, leading to a Denial of Service (DoS) due to blocked goroutines and resource exhaustion.
+**Learning:** Similar to HTTP clients lacking timeouts, executing local processes without bounded time can cause indefinite hanging if the child process stalls.
+**Prevention:** Always use `exec.CommandContext` with `context.WithTimeout` instead of `exec.Command` when invoking external processes or CLI tools to guarantee a maximum bounded execution time.
