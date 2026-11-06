@@ -88,6 +88,10 @@ func parseAPKPackages(out string) []InventoryPackage {
 			continue
 		}
 		nameVersion := strings.Fields(line)[0]
+		// SEC: To prevent ReDoS attacks, enforce strict input length limits before regex evaluation.
+		if len(nameVersion) > 256 {
+			continue
+		}
 		matches := apkPackagePattern.FindStringSubmatch(nameVersion)
 		if len(matches) != 3 {
 			continue
